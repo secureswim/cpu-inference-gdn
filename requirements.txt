@@ -1,0 +1,6 @@
+numpy>=1.26,<3
+torch>=2.5
+matplotlib>=3.8,<4
+psutil>=6,<8
+reportlab>=4,<6
+pypdf>=5
