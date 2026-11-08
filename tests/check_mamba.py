@@ -26,8 +26,8 @@ def official_function(filename, name):
     return namespace[name]
 
 
-def check_case(rank, simd, n, seed, variant=3):
-    heads, p = 2, 13  # Non-square state and SIMD tails catch indexing mistakes.
+def check_case(rank, simd, n, seed, variant=3, heads=2, p=13):
+    # Small non-square cases exercise indexing. Additional cases match the benchmark.
     v = inputs(heads, p, n, rank, seed)
     state = torch.from_numpy(v["state"].copy()).double()[None]
     prev_b = torch.from_numpy(v["bprev"].copy())[None]
@@ -62,7 +62,7 @@ def check_case(rank, simd, n, seed, variant=3):
                                        err_msg=f"rank={rank} simd={simd} n={n} step={t} {key}")
         np.testing.assert_array_equal(v["xprev"], v["x"])
         prev_b, prev_x = b.clone(), x.clone()
-    return {"rank": rank, "simd": simd, "n": n, "seed": seed, "variant": variant,
+    return {"rank": rank, "simd": simd, "n": n, "heads": heads, "p": p, "seed": seed, "variant": variant,
             "steps": 1000, "atol": 2e-5, "rtol": 2e-4, "max_abs": maximum}
 
 
@@ -77,4 +77,9 @@ if __name__ == "__main__":
                 print(json.dumps(row), flush=True)
     for simd in (0, 1):
         results.append(check_case(1, simd, 128, 123, variant=2))
+    for rank in (1, 4):
+        for simd in (0, 1):
+            row = check_case(rank, simd, 128, 163, heads=32, p=128)
+            results.append(row)
+            print(json.dumps(row), flush=True)
     (ROOT / "results/mamba_correctness.json").write_text(json.dumps(results, indent=2))

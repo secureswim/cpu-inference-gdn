@@ -1,0 +1,36 @@
+{
+  "mamba_commit": "e9594ce1c732d97440f0332fdc43170a2294dbfa",
+  "verified_upstream_files": [
+    {
+      "path": "vendor/mamba3.py",
+      "upstream_path": "mamba_ssm/modules/mamba3.py",
+      "git_blob_sha": "34c119c2cd9052e82bd80d791afd1508285fa3be",
+      "sha256": "930c3dfa04dea8444b1c9ee8b6ac9cbbc7ef492dc5ae1f4c83051ef953eca33c"
+    },
+    {
+      "path": "vendor/mamba3_step_fn.py",
+      "upstream_path": "mamba_ssm/ops/cute/mamba3/mamba3_step_fn.py",
+      "git_blob_sha": "4a2fb49f607409d326dde92399aa17ef4c72d3e8",
+      "sha256": "5c82f3936308cfc90bb3bcdfd410c60fc80dfc3afe72c4338831341398cd7ca4"
+    },
+    {
+      "path": "vendor/mamba3_mimo_rotary_step.py",
+      "upstream_path": "mamba_ssm/ops/triton/mamba3/mamba3_mimo_rotary_step.py",
+      "git_blob_sha": "c6b8596d1db2c230b015a6af693cf431eb806b3d",
+      "sha256": "e117b5da3d2ddfcfa66673a88dfd88a6d688100291d3b6a1b0b3c24c82ef79d6"
+    },
+    {
+      "path": "vendor/test_mamba3_mimo_step.py",
+      "upstream_path": "tests/ops/cute/test_mamba3_mimo_step.py",
+      "git_blob_sha": "0d40e9dc6a284a504c1fb74969301de754a342a0",
+      "sha256": "e751cea072530a23b7948008e4ade512e44aff691a27d02b04ab80bae4bc451a"
+    },
+    {
+      "path": "vendor/LICENSE",
+      "upstream_path": "LICENSE",
+      "git_blob_sha": "f4abe24eb520fbb077753ae4f34bfaa43cb3b83f",
+      "sha256": "760939b000194d04548ede6a857bbe735d1695d8422ec85955c8e2bd7f4b95c5"
+    }
+  ],
+  "stream_sha256": "a52bae5e175bea3f7832112af9c085adab47117f7d2ce219165379849231692b"
+}

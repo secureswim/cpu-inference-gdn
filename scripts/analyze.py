@@ -1,9 +1,11 @@
 """Generate all figures and machine-readable summaries from the raw CSVs."""
 import csv
 import json
+import os
 from pathlib import Path
 import statistics as stats
 
+os.environ.setdefault("MPLCONFIGDIR", str(Path(__file__).resolve().parents[1] / "build/matplotlib"))
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt

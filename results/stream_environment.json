@@ -1,0 +1,19 @@
+{
+  "timestamp": "2026-11-09T00:58:47+0530",
+  "elements_per_array": 20000000,
+  "bytes_per_array": 160000000,
+  "total_array_bytes": 480000000,
+  "last_level_cache_bytes": 25165824,
+  "p_core_logical_indices": [
+    0,
+    10,
+    12,
+    14,
+    16,
+    18
+  ],
+  "effective_power_overlay": {
+    "status": 0,
+    "guid": "ded574b5-45a0-4f42-8737-46345c09c238"
+  }
+}

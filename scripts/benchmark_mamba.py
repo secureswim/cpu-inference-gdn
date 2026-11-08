@@ -18,8 +18,10 @@ for repeat in range(3):
     # Includes carried K/X/angle and projection/readout arrays. Scalar does an
     # additional state read for readout, which this lower bound excludes.
     state_bytes = heads * p * n * 4
-    arrays_bytes = 4 * (4 * rank * heads * n + 2 * heads * p + 4 * heads
-                       + 3 * rank * heads * p + 2 * heads * (n // 4) + heads * p)
+    # BC plus previous-K read/write, X/Z/Y plus previous-X read/write,
+    # A/DT/trap/D, three rank projections, and angle projection/state traffic.
+    arrays_bytes = 4 * (4 * rank * heads * n + 5 * heads * p + 4 * heads
+                       + 3 * rank * heads * p + 3 * heads * (n // 4))
     # Persistent state: S + previous K + previous X + cumulative rotary angles.
     persistent = state_bytes + 4 * (rank * heads * n + heads * p + heads * (n // 4))
     # Per state element: decay + two rank outer products + rank readout dots.

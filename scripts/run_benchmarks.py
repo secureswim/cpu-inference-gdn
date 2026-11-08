@@ -11,6 +11,7 @@ import re
 import subprocess
 import sys
 import time
+import uuid
 
 import psutil
 
@@ -31,6 +32,17 @@ def execute(args, env=None):
     return result.stdout
 
 
+def power_overlay():
+    if os.name != "nt":
+        return None
+    guid = (ctypes.c_ubyte * 16)()
+    try:
+        status = ctypes.WinDLL("powrprof").PowerGetEffectiveOverlayScheme(ctypes.byref(guid))
+        return {"status": status, "guid": str(uuid.UUID(bytes_le=bytes(guid)))}
+    except (AttributeError, OSError):
+        return {"status": "unavailable"}
+
+
 @contextlib.contextmanager
 def affinity(cpus):
     process = psutil.Process()
@@ -42,18 +54,60 @@ def affinity(cpus):
         process.cpu_affinity(previous)
 
 
-def sweep(allow_battery=False):
+def measure_stream(cpus):
+    hardware = execute([BIN / f"machine{SUFFIX}"])
+    cache_bytes = sum(int(line.split(",")[1]) for line in hardware.splitlines() if line.startswith("cache=3,"))
+    bytes_per_array = 20000000 * 8
+    if bytes_per_array < 4 * cache_bytes:
+        raise RuntimeError("Increase STREAM_ARRAY_SIZE so each array exceeds four times the total LLC")
+    metadata = {"timestamp": time.strftime("%Y-%m-%dT%H:%M:%S%z"), "elements_per_array": 20000000,
+                "bytes_per_array": bytes_per_array, "total_array_bytes": bytes_per_array * 3,
+                "last_level_cache_bytes": cache_bytes, "p_core_logical_indices": cpus,
+                "effective_power_overlay": power_overlay()}
+    (RESULTS / "stream_environment.json").write_text(json.dumps(metadata, indent=2))
+    with (RESULTS / "stream_raw.csv").open("w", newline="") as file:
+        writer = csv.writer(file)
+        writer.writerow(["threads", "repeat", "kernel", "best_MB_s", "average_seconds", "min_seconds", "max_seconds", "peak_rss_bytes"])
+        for threads in range(1, len(cpus) + 1):
+            for repeat in range(3):
+                env = {**os.environ, "OMP_NUM_THREADS": str(threads), "OMP_DYNAMIC": "FALSE"}
+                with affinity(cpus):
+                    process = subprocess.Popen([str(BIN / f"stream{SUFFIX}")], env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+                    peak = 0
+                    monitor = psutil.Process(process.pid)
+                    while process.poll() is None:
+                        try:
+                            mem = monitor.memory_info()
+                            peak = max(peak, getattr(mem, "peak_wset", mem.rss))
+                        except psutil.NoSuchProcess:
+                            break
+                        time.sleep(0.01)
+                    output, err = process.communicate()
+                    if process.returncode or "Solution Validates" not in output or "Array size = 20000000" not in output:
+                        raise RuntimeError(output + err)
+                (RESULTS / f"stream_t{threads}_r{repeat}.txt").write_text(output)
+                for name, best, avg, low, high in re.findall(r"^(Copy|Scale|Add|Triad):\s+([\d.]+)\s+([\d.]+)\s+([\d.]+)\s+([\d.]+)", output, re.M):
+                    writer.writerow([threads, repeat, name, best, avg, low, high, peak])
+                file.flush()
+            print(f"STREAM threads={threads}", flush=True)
+
+
+def sweep(allow_battery=False, stream_only=False):
     RESULTS.mkdir(exist_ok=True)
     hardware = execute([BIN / f"machine{SUFFIX}"])
-    (RESULTS / "hardware.txt").write_text(hardware)
+    (RESULTS / ("stream_hardware.txt" if stream_only else "hardware.txt")).write_text(hardware)
     info = dict(line.split("=", 1) for line in hardware.splitlines())
     if os.name == "nt" and info["ac_line_status"] != "1" and not allow_battery:
         raise SystemExit("Connect charger before timing. --allow-battery labels provisional measurements.")
     masks = [int(value) for value in info["p_core_masks"].split(",") if value]
     cpus = [mask.bit_length() - 1 for mask in masks]
+    if stream_only:
+        measure_stream(cpus)
+        return
     metadata = {"timestamp": time.strftime("%Y-%m-%dT%H:%M:%S%z"),
                 "python": sys.version, "os": platform.platform(),
                 "power_scheme": execute(["powercfg", "/getactivescheme"]).strip() if os.name == "nt" else "unrecorded",
+                "effective_power_overlay": power_overlay(),
                 "p_core_logical_indices": cpus, "timings_provisional": info.get("ac_line_status") != "1",
                 "background_apps_closed": False,
                 "background_note": "Codex and existing desktop applications remained open. Timing spread captures some interference.",
@@ -84,31 +138,7 @@ def sweep(allow_battery=False):
             writer.writerows(rows)
             file.flush()
             print(f"GDN {mode} length={length} threads={threads} pinned={pinned}", flush=True)
-    with (RESULTS / "stream_raw.csv").open("w", newline="") as file:
-        writer = csv.writer(file)
-        writer.writerow(["threads", "repeat", "kernel", "best_MB_s", "average_seconds", "min_seconds", "max_seconds", "peak_rss_bytes"])
-        for threads in range(1, len(cpus) + 1):
-            for repeat in range(3):
-                env = {**os.environ, "OMP_NUM_THREADS": str(threads), "OMP_DYNAMIC": "FALSE"}
-                with affinity(cpus):
-                    process = subprocess.Popen([str(BIN / f"stream{SUFFIX}")], env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
-                    peak = 0
-                    monitor = psutil.Process(process.pid)
-                    while process.poll() is None:
-                        try:
-                            mem = monitor.memory_info()
-                            peak = max(peak, getattr(mem, "peak_wset", mem.rss))
-                        except psutil.NoSuchProcess:
-                            break
-                        time.sleep(0.01)
-                    output, err = process.communicate()
-                    if process.returncode or "Solution Validates" not in output:
-                        raise RuntimeError(output + err)
-                (RESULTS / f"stream_t{threads}_r{repeat}.txt").write_text(output)
-                for name, best, avg, low, high in re.findall(r"^(Copy|Scale|Add|Triad):\s+([\d.]+)\s+([\d.]+)\s+([\d.]+)\s+([\d.]+)", output, re.M):
-                    writer.writerow([threads, repeat, name, best, avg, low, high, peak])
-                file.flush()
-            print(f"STREAM threads={threads}", flush=True)
+    measure_stream(cpus)
     with (RESULTS / "mamba_raw.csv").open("w", newline="") as file:
         writer = None
         for heads in (4, 32, 512):
@@ -128,4 +158,6 @@ def sweep(allow_battery=False):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--allow-battery", action="store_true")
-    sweep(parser.parse_args().allow_battery)
+    parser.add_argument("--stream-only", action="store_true")
+    args = parser.parse_args()
+    sweep(args.allow_battery, args.stream_only)

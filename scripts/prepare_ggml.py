@@ -27,8 +27,10 @@ def prepare(local_source=None):
     else:
         clone = ROOT / "build/vendor/llama.cpp"
         clone.parent.mkdir(parents=True, exist_ok=True)
-        subprocess.run(["git", "clone", "https://github.com/ggml-org/llama.cpp.git", str(clone)], check=True)
-        subprocess.run(["git", "-C", str(clone), "checkout", COMMIT], check=True)
+        subprocess.run(["git", "init", str(clone)], check=True)
+        subprocess.run(["git", "-C", str(clone), "remote", "add", "origin", "https://github.com/ggml-org/llama.cpp.git"], check=True)
+        subprocess.run(["git", "-C", str(clone), "fetch", "--depth=1", "origin", COMMIT], check=True)
+        subprocess.run(["git", "-C", str(clone), "checkout", "--detach", "FETCH_HEAD"], check=True)
         shutil.copytree(clone / "ggml", target)
     cpu = target / "src/ggml-cpu/ggml-cpu.c"
     text = cpu.read_text(encoding="utf-8")

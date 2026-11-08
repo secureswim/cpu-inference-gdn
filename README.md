@@ -12,9 +12,13 @@ The bonus implements Mamba-3's exponential-trapezoidal recurrence, rotary repres
 
 ## Status
 
-Correctness checks pass. The main GDN check covers 1,000 changing-input steps against an independent FP64 implementation and tests multi-token equivalence. Fourteen Mamba reference cases each cover 1,000 steps, including scalar and SIMD, SISO and MIMO, SIMD tails, and the Euler baseline. Both ggml integration cases also pass 1,000 steps.
+Correctness checks pass. The main GDN check covers 1,000 changing-input steps against an independent FP64 implementation and tests multi-token equivalence. Eighteen Mamba reference cases each cover 1,000 steps, including scalar and SIMD, SISO and MIMO, SIMD tails, the Euler baseline, and four cases at the main benchmark shape. Both ggml integration cases also pass 1,000 steps.
 
-The controlled timing sweeps are waiting for confirmation of AC power and the performance power mode. The supplied machine initially reported battery power and the Balanced scheme. Final plots, the numerical report, and the numerical talk deck depend on those measurements. Do not describe the assignment as ready for submission until `SUBMISSION_STATUS.md` shows the required remaining work is complete.
+The AC-powered sweeps, plots, four-page report, and talk materials are complete. The effective Windows overlay was Best Performance, while its base scheme reports Balanced. A separate power-confirmation record verifies the overlay. Desktop applications remained open, and this limitation is stated in the report.
+
+The AVX2 Mamba-3 SISO kernel averages **439.0 microseconds per step**, while rank-4 MIMO averages **1,394.1 microseconds** at the same 2 MiB main-state size, a **3.18x latency ratio**. At 32 MiB the ratio is **3.38x**. MIMO's extra compute has a measurable CPU cost in this implementation. GDN uses 2 MiB persistent main state per layer, compared with an analytical 512 MiB FP32 attention KV cache at 32k tokens with 16 KV heads.
+
+The raw data contain 120 GDN rows, 54 Mamba rows, and 72 STREAM rows. `tests/validate_results.py` audits full sweep coverage, repeat counts, rates, memory bounds, correctness records, report length, and talk duration. External requirements appear in `SUBMISSION_STATUS.md`, including the PARAM Rudra run deferred by request.
 
 ## Windows reproduction
 
@@ -54,7 +58,7 @@ Connect the charger, choose performance power mode, close other applications whe
 - **Thread scaling** covers 1 through all six physical P cores, with one hardware thread per core and no E cores in the main sweep. A persistent ggml thread pool uses zero polling. All configurations run serially.
 - **Repetitions** include one graph warmup and three independent timed repeats of at least 0.35 seconds. Long prefill prompts can exceed this minimum. Raw CSVs retain elapsed time and token count. Analysis reports mean and sample standard deviation plus min/max.
 - **Memory** uses Windows peak process working set and free system RAM. Each configuration gets a separate process. Within a configuration, the peak is cumulative across the three repeats, giving an upper bound for each repeat. The runner aborts above 4.5 GB process RSS or below 1 GB free RAM. This check does not directly count hard page faults.
-- **STREAM** uses the official unmodified 5.10 C source, 10 million doubles per array, and 20 passes per execution. Three arrays occupy 240 MB. Three independent executions run at every thread count. The summary averages the best Triad bandwidth from those executions. The complete STREAM text outputs accompany the CSV.
+- **STREAM** uses the official unmodified 5.10 C source, 20 million doubles per array, and 20 passes per execution. Each 160 MB array exceeds four times this machine's 24 MiB LLC, as the STREAM sizing rule requires. The three arrays occupy 480 MB. Three independent executions run at every thread count. The summary averages the best Triad bandwidth from those executions. Complete text outputs and a separate timestamped STREAM environment record accompany the CSV. Use `scripts/run_benchmarks.py --stream-only` to repeat this portion alone.
 - **Profiling** adds runtime-selectable scoped timers to the actual upstream GDN loop. Separate single-worker prefill/decode runs measure initial state copy, decay, delta dot products, state update, and output dot products. Percentages exclude driver copy and scheduling. Timer overhead affects only the instrumented runs. Throughput comes from uninstrumented runs. `scripts/profile_linux.sh` supplies sampled `perf` commands. A separate VTune/uProf trace remains a submission requirement on Windows.
 - **Own experiment** compares P-core pinning with unrestricted OS placement using the same worker count and workload. It records mean and spread. Run order and background processes can confound small differences.
 
@@ -88,10 +92,13 @@ The stretch uses `ggml_map_custom1` as a small graph operator with packed input 
 | `results/` | Hardware, environment, correctness evidence, raw CSVs, and summaries |
 | `output/plots/` | Required plots in PNG and vector PDF |
 | `output/pdf/Project_1_Report.pdf` | Four-page report generated from measurements |
-| `output/Project_1_Talk.pptx` | Presentation with editable data charts and speaker notes |
+| `output/Project_1_Presentation.pptx` | Presentation with editable data charts and speaker notes |
 | `output/Talk_Script.md` | Script for a ten-minute delivery |
 
-The course template, team details, access to PARAM Rudra, and a student-recorded talk require course/user input. `scripts/run_shared_reference.sh` runs the exact combined 512-token prompt / 128-token decode test with CPU-only Llama-3.2-1B Q4_K_M. It deliberately requires the allocated thread count and model path rather than guessing a scheduler partition or account.
+The course template, team details, access to PARAM Rudra, and a student-recorded talk require course/user input. Windows blocked supplemental CPU sampling with profiling-policy error `0xc5585011`. The report includes phase timings measured within the actual upstream operator, and `results/profiles/README.md` records the sampling limitation. `scripts/run_shared_reference.sh` runs the exact combined 512-token prompt / 128-token decode test with CPU-only Llama-3.2-1B Q4_K_M. It requires the allocated thread count and model path.
+
+The talk has twelve slides, editable charts, speaker notes, and a 600-second delivery plan. `scripts/make_deck.mjs` supplies its source. Rebuilding that deck uses the Codex bundled Artifact Tool runtime, with `RUNTIME_NODE_MODULES`, `RUNTIME_PYTHON`, and `PRESENTATIONS_SKILL_DIR` set to the installed runtime/skill locations. Set `DECK_OUTPUT` to a new output filename when rebuilding an existing deck. This authoring dependency is separate from the experiment's Python/C++ dependencies. The committed PowerPoint file is directly editable in PowerPoint.
+
 
 ## Sources
 

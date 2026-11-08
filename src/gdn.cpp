@@ -129,8 +129,15 @@ int main(int argc,char **argv) try {
     std::cout << std::setprecision(10);
     if(std::string(argv[1])=="check") { check(); return 0; }
     if(argc!=6) throw std::runtime_error("Expected bench threads mode length pinned");
+    if(std::string(argv[1])!="bench") throw std::runtime_error("Unknown command");
     int threads=std::stoi(argv[2]), length=std::stoi(argv[4]);
     std::string mode=argv[3];
+    if(mode!="prefill" && mode!="decode" && mode!="profile" && mode!="profile_prefill")
+        throw std::runtime_error("Unknown benchmark mode");
+    if(threads<1 || threads>512 || length<128 || length>32768 || length%128)
+        throw std::runtime_error("Use 1..512 threads and a length divisible by 128, from 128 to 32768");
+    if(std::string(argv[5])!="0" && std::string(argv[5])!="1")
+        throw std::runtime_error("Pinned must be 0 or 1");
     if(free_ram()<1000000000ULL) throw std::runtime_error("Insufficient free RAM");
     Graph decode(1,threads), chunk(128,threads);
     if(mode=="decode") {

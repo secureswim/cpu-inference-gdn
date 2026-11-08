@@ -1,0 +1,1 @@
+Validated 120 GDN, 54 Mamba and 72 STREAM rows, 18 reference cases, four report pages and 600 seconds of talk timings.

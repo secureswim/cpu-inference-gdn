@@ -1,0 +1,9 @@
+GCC 13.2.0, MinGW-w64 x86_64-ucrt-posix-seh
+CMake 3.29.2, Ninja 1.12.0
+Build type Release, -O3, C++17
+GGML_NATIVE=OFF, GGML_AVX=ON, GGML_AVX2=ON, GGML_FMA=ON, GGML_F16C=ON
+GGML_CUDA=OFF, GGML_VULKAN=OFF, GGML_METAL=OFF, GGML_OPENMP=ON
+No F16 model weights. Synthetic state and inputs are FP32.
+llama.cpp commit 8bb3cf0d216a5ae48360179f2931daf284be4d01
+Mamba commit e9594ce1c732d97440f0332fdc43170a2294dbfa
+STREAM_ARRAY_SIZE=20000000, NTIMES=20; each 160 MB array exceeds 4x the 24 MiB LLC

@@ -4,3 +4,4 @@ __pycache__/
 .venv/
 .codex-finalizer/
 vendor/mamba-tree.json
+.chart-data-*/

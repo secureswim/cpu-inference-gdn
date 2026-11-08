@@ -1,10 +1,10 @@
 Internal ctest changing into directory: C:/Users/Siddharth/ldls-project/Slakshna/project-1/build/cmake
 Test project C:/Users/Siddharth/ldls-project/Slakshna/project-1/build/cmake
     Start 1: gdn_correctness
-1/2 Test #1: gdn_correctness ..................   Passed    3.92 sec
+1/2 Test #1: gdn_correctness ..................   Passed    2.52 sec
     Start 2: mamba_ggml_correctness
-2/2 Test #2: mamba_ggml_correctness ...........   Passed    0.11 sec
+2/2 Test #2: mamba_ggml_correctness ...........   Passed    0.18 sec
 
 100% tests passed, 0 tests failed out of 2
 
-Total Test time (real) =   4.08 sec
+Total Test time (real) =   2.72 sec
