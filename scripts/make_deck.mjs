@@ -20,6 +20,7 @@ const correctness = await readJSON('gdn_correctness.json');
 const [rudra] = await readJSON('param-rudra/186891/reference.json');
 const rudraMemory = await readJSON('param-rudra/186891/peak-rss.json');
 const study = data.working_set_study;
+const longer = data.long_repeat_study;
 const sampledPath = path.join(root, 'results/profiles/sampled.json');
 const sampled = await fs.readFile(sampledPath, 'utf8').then(JSON.parse).catch(error => {
   if (error.code !== 'ENOENT') throw error;
@@ -220,9 +221,14 @@ function lengthChart(s, mode, lengths, xTitle, max) {
 
 {
   const speedup = (mode, length, n) => sample(mode, length, n).mean / sample(mode, length, 1).mean;
+  const followUp = (mode, length, n) => longer.measurements.find(row =>
+    row.mode === mode && Number(row.length) === length && Number(row.threads) === n).mean;
+  const longPrefill = longer ? followUp('prefill', 4096, cores) / followUp('prefill', 4096, 1) : null;
+  const longDecode = longer ? followUp('decode', 1024, cores) / followUp('decode', 1024, 1) : null;
   const s = slide('Thread scaling from one to six P cores', 40,
-    'Here each series is normalized to its own one-core rate. The decode series starts from a one thousand twenty-four token history, and the prefill series uses a four thousand ninety-six token prompt. At six cores, prefill is ' + speedup('prefill', 4096, cores).toFixed(2) + ' times its one-core rate. Decode is ' + speedup('decode', 1024, cores).toFixed(2) + ' times its one-core rate. The backend divides work across heads. Each single-token call also pays dispatch, synchronization and state carry costs. Prefill spreads fixed call costs over one hundred twenty-eight tokens. These costs help explain the different scaling patterns.',
-    'results/gdn_raw.csv, results/summary.json, output/plots/thread_scaling.pdf');
+    'Each series is normalized to its own one-core rate. In the short sweep, six-core prefill is ' + speedup('prefill', 4096, cores).toFixed(2) + ' times its one-core rate. Decode is ' + speedup('decode', 1024, cores).toFixed(2) + ' times. Prefill spreads call costs across one hundred twenty-eight tokens. ' +
+      (longer ? 'With two-second repeats, the speedups were ' + longPrefill.toFixed(2) + ' for prefill and ' + longDecode.toFixed(2) + ' for decode.' : ''),
+    'results/gdn_raw.csv, results/gdn_long_repeats.csv, results/summary.json, output/plots/thread_scaling.pdf');
   chart(s, 'line', threads.map(String), [
     { name: 'Decode · 1,024 history', values: threads.map(n => speedup('decode', 1024, n)) },
     { name: 'Prefill · 4,096 prompt', values: threads.map(n => speedup('prefill', 4096, n)) },
@@ -230,23 +236,25 @@ function lengthChart(s, mode, lengths, xTitle, max) {
   ], { xTitle: 'Physical P cores', yTitle: 'Speedup over 1 P core', number: '0.0"×"', max: 6 });
   stat(s, speedup('prefill', 4096, cores).toFixed(2) + '×', 'Prefill at six P cores', 860, 181, 340, rust);
   stat(s, speedup('decode', 1024, cores).toFixed(2) + '×', 'Decode at six P cores', 860, 376);
+  if (longer) foot(s, 'Two-second follow-up at six P cores: ' + longPrefill.toFixed(2) + '× prefill and ' +
+    longDecode.toFixed(2) + '× decode. Chart shows the full short sweep.');
 }
 
 {
   const phase = data.phase_percent;
   const names = ['Initial state copy', 'Decay', 'Delta dot products', 'Rank-one update', 'Output dot products'];
-  const carry = rotation(1, 1).carry_us.mean;
-  const serial = carry / rotation(1, 1).diagnostic_us.mean;
+  const graph = [1, cores].map(n => fmt(rotation(n, 1).graph_us.mean)).join(' → ');
+  const carry = [1, cores].map(n => fmt(rotation(n, 1).carry_us.mean)).join(' → ');
   const s = slide('Two state copies with different costs', 55,
-    'The scoped timers measure five phases inside the fused operator on one worker. The ggml initial copy runs inside head ranges assigned to different workers, so its one-worker percentage cannot be used as a serial fraction. After ggml returns, the driver performs a separate serial copy to carry the next state. With one state that copy averages ' + fmt(carry) + ' microseconds, or ' + fmt(serial * 100) + ' percent of our diagnostic step. The operator percentages exclude this driver copy. ' +
-      (sampled ? sampled.report_note : 'Windows blocked sampled profiling. The phase chart uses scoped timing.'),
+    'The chart shows one-worker times inside ggml. The initial copy is parallelized by head. From one to six workers, the whole graph falls from ' + graph.replace(' → ', ' to ') + ' microseconds, about a five-percent gain. The separate serial driver copy rises from ' + carry.replace(' → ', ' to ') + ' microseconds, offsetting that gain. So the graph already scales weakly before the driver copy. On the non-NUMA path, workers claim two-head chunks after a barrier. ' +
+      (sampled ? 'In the WSL2 profile, 43.5 percent of six-worker CPU samples landed in the OpenMP runtime. That is sample share on Linux, while these timings are Windows wall time.' : 'The phase chart uses scoped timing.'),
     'results/gdn_raw.csv, results/working_sets.csv, results/profiles/, output/plots/operator_breakdown.pdf');
   chart(s, 'bar', ['State copy', 'Decay', 'Delta dots', 'State update', 'Output dots'], [
     { name: 'Decode', values: names.map(name => phase.profile[name]) },
     { name: 'Prefill', values: names.map(name => phase.profile_prefill[name]) },
   ], { yTitle: 'Share of scoped time (%)' });
-  stat(s, phase.profile['Initial state copy'].toFixed(1) + '%', 'Initial ggml copy share\nwithin scoped decode', 860, 175);
-  stat(s, fmt(carry) + ' µs', 'Separate serial driver copy\non one P core, one state', 860, 378, 350, rust);
+  stat(s, graph + ' µs', 'Graph time\nfrom one to six P cores', 860, 175, 350, teal, 43);
+  stat(s, carry + ' µs', 'Serial driver copy time\nfrom one to six P cores', 860, 378, 350, rust, 43);
   foot(s, sampled ? sampled.slide_note : 'Scoped timings use one worker. Windows blocked sampled profiling.');
 }
 
@@ -289,7 +297,7 @@ function lengthChart(s, mode, lengths, xTitle, max) {
   const b = rotation(1, 36).latency_us.mean;
   const c = rotation(cores, 1).latency_us.mean;
   const d = rotation(cores, 36).latency_us.mean;
-  const s = slide('Decode across independent states', 65,
+  const s = slide('Own experiment on working-set size', 65,
     'The added experiment cycles through one, four, twelve and thirty-six independent states using one reusable graph. Each step performs the same arithmetic on the same input shapes. Thirty-six states represent seventy-two mebibytes of recurrent memory, compared with twenty-four mebibytes of shared L3. On one core latency changes from ' + fmt(a) + ' to ' + fmt(b) + ' microseconds per layer step. On six it changes from ' + fmt(c) + ' to ' + fmt(d) + '. One round over thirty-six states takes ' + (36 * b / 1000).toFixed(1) + ' milliseconds on one core and ' + (36 * d / 1000).toFixed(1) + ' on six. The footprint corresponds to the model’s thirty-six recurrent layers. The benchmark isolates the recurrent operation and its state carry. A complete model also has projections, attention, and expert layers.',
     'results/working_sets.csv, results/summary.json, output/plots/working_sets.pdf');
   chart(s, 'line', counts.map(String), [1, cores].map(n => ({
@@ -306,7 +314,7 @@ function lengthChart(s, mode, lengths, xTitle, max) {
 {
   const limit = study.ceilings.at(-1);
   const s = slide('Cache and compute ceilings', 60,
-    'The source-level count gives about ' + (study.flops_per_step / 1e6).toFixed(2) + ' million floating-point operations per step, excluding the exponentials. Dividing by the logical byte count gives ' + study.logical_flops_per_byte.toFixed(3) + ' FLOP per byte. We measured effective bandwidth at several working-set sizes and used the one and sixteen mebibyte copy points as cache-sized references. STREAM supplies the large-array DRAM reference. An AVX2 FMA loop gives the measured compute ceiling. We plot one-state and thirty-six-state decode at the same logical intensity. Cache capacity alone cannot tell us how many requests reached each level, and the byte model omits some passes over the state. The roofline puts the measurements on a common scale and shows the gap to those reference rates.',
+    'The code performs about ' + (study.flops_per_step / 1e6).toFixed(2) + ' million floating-point operations per step, excluding exponentials. Dividing by logical bytes gives ' + study.logical_flops_per_byte.toFixed(3) + ' FLOP per byte. Both decode points sit well below the cache-copy references. On one core, thirty-six states imply about sixteen gigabytes per second of logical traffic, compared with about thirty-one and a half in the large-buffer copy test. With no consistent slowdown as the footprint grows, the evidence points to the kernel loops, repeated state passes and two copies as the main costs. The logical byte count cannot tell us how much traffic actually reached DRAM.',
     'results/ceilings.csv, results/stream_raw.csv, results/working_sets.csv, output/plots/cache_roofline.pdf');
   s.images.add({
     blob: await fs.readFile(path.join(root, 'output/plots/cache_roofline.png')),

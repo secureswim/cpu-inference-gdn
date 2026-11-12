@@ -36,6 +36,8 @@ Connect the charger, select Windows Best Performance, and exit browsers and IDEs
 
 `scripts/run_benchmarks.py --clean-rerun --output build/reproduction` runs the measurements into a separate directory after the initial build. `scripts/run.ps1 -AllowBattery` saves provisional raw measurements separately under `build/`. The final run verified AC power and the effective Windows performance overlay. Chrome and Edge processes were absent at startup, and the chat remained open.
 
+Run `scripts/run_benchmarks.py --long-repeats --output build/long-reproduction` for the two-second follow-up. It runs three interleaved repeats across ten selected decode and prefill settings. The original full sweep remains the source for the length and scaling plots. [Follow-up results](results/gdn_long_repeats.csv) · [Run environment](results/long_repeats_environment.json)
+
 ## Measurement protocol
 
 - **GDN shape** uses FP32 Q/K `[128,16,T,1]`, V `[128,32,T,1]`, scalar decay and beta gates, and initial state `[128,128,32,1]`. GGML's tiled head broadcast maps value head `h` to Q/K head `h % 16`.

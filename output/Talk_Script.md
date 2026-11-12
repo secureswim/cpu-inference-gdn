@@ -40,13 +40,13 @@ Prefill processes complete prompts of five hundred twelve, four thousand ninety-
 
 4:10 to 4:50
 
-Here each series is normalized to its own one-core rate. The decode series starts from a one thousand twenty-four token history, and the prefill series uses a four thousand ninety-six token prompt. At six cores, prefill is 2.99 times its one-core rate. Decode is 1.01 times its one-core rate. The backend divides work across heads. Each single-token call also pays dispatch, synchronization and state carry costs. Prefill spreads fixed call costs over one hundred twenty-eight tokens. These costs help explain the different scaling patterns.
+Each series is normalized to its own one-core rate. In the short sweep, six-core prefill is 2.99 times its one-core rate. Decode is 1.01 times. Prefill spreads call costs across one hundred twenty-eight tokens. With two-second repeats, the speedups were 3.52 for prefill and 1.06 for decode.
 
 ## Slide 8 - Two state copies with different costs
 
 4:50 to 5:45
 
-The scoped timers measure five phases inside the fused operator on one worker. The ggml initial copy runs inside head ranges assigned to different workers, so its one-worker percentage cannot be used as a serial fraction. After ggml returns, the driver performs a separate serial copy to carry the next state. With one state that copy averages 121 microseconds, or 22 percent of our diagnostic step. The operator percentages exclude this driver copy. WSL2 perf attributed about 21% of one-worker decode CPU samples to each copy call stack. At six workers, 43.5% of aggregate CPU samples landed in libgomp. This corroborates copy and worker-runtime costs on a separate Linux build. These CPU sample shares do not measure Windows wall time.
+The chart shows one-worker times inside ggml. The initial copy is parallelized by head. From one to six workers, the whole graph falls from 433 to 412 microseconds, about a five-percent gain. The separate serial driver copy rises from 121 to 202 microseconds, offsetting that gain. So the graph already scales weakly before the driver copy. On the non-NUMA path, workers claim two-head chunks after a barrier. In the WSL2 profile, 43.5 percent of six-worker CPU samples landed in the OpenMP runtime. That is sample share on Linux, while these timings are Windows wall time.
 
 ## Slide 9 - Predicted vs. measured decode speed
 
@@ -60,7 +60,7 @@ The assignment comparison divides STREAM Triad bandwidth by our logical byte cou
 
 The Gated DeltaNet state holds thirty-two matrices of one hundred twenty-eight by one hundred twenty-eight FP32 values. This is two mebibytes per layer. Qwen3-Next full attention uses two key-value heads of width two hundred fifty-six. With F16 keys and values, each token adds two kibibytes per attention layer. At thirty-two thousand seven hundred sixty-eight tokens that gives sixty-four mebibytes. These figures describe persistent recurrence and attention KV storage. Process working set includes buffers and runtime overhead.
 
-## Slide 11 - Decode across independent states
+## Slide 11 - Own experiment on working-set size
 
 7:15 to 8:20
 
@@ -70,7 +70,7 @@ The added experiment cycles through one, four, twelve and thirty-six independent
 
 8:20 to 9:20
 
-The source-level count gives about 3.67 million floating-point operations per step, excluding the exponentials. Dividing by the logical byte count gives 0.435 FLOP per byte. We measured effective bandwidth at several working-set sizes and used the one and sixteen mebibyte copy points as cache-sized references. STREAM supplies the large-array DRAM reference. An AVX2 FMA loop gives the measured compute ceiling. We plot one-state and thirty-six-state decode at the same logical intensity. Cache capacity alone cannot tell us how many requests reached each level, and the byte model omits some passes over the state. The roofline puts the measurements on a common scale and shows the gap to those reference rates.
+The code performs about 3.67 million floating-point operations per step, excluding exponentials. Dividing by logical bytes gives 0.435 FLOP per byte. Both decode points sit well below the cache-copy references. On one core, thirty-six states imply about sixteen gigabytes per second of logical traffic, compared with about thirty-one and a half in the large-buffer copy test. With no consistent slowdown as the footprint grows, the evidence points to the kernel loops, repeated state passes and two copies as the main costs. The logical byte count cannot tell us how much traffic actually reached DRAM.
 
 ## Slide 13 - Shared PARAM Rudra CPU reference
 

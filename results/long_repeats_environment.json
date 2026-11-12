@@ -1,0 +1,18 @@
+{
+  "start": "2026-11-13T04:32:02+0530",
+  "end": "2026-11-13T04:33:40+0530",
+  "cpu": "Intel(R) Core(TM) Ultra 9 185H",
+  "p_core_count": 6,
+  "repeats": 3,
+  "minimum_seconds": 2.0,
+  "effective_power_overlay": {
+    "status": 0,
+    "guid": "ded574b5-45a0-4f42-8737-46345c09c238"
+  },
+  "ac_power_checks_passed": true,
+  "browser_and_ide_window_checks_passed": true,
+  "background_browser_ide_processes_at_start": [
+    "chrome"
+  ],
+  "run_order_seed": 2023522
+}

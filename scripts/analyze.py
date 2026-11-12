@@ -249,6 +249,18 @@ def analyze():
     supplemental = [RESULTS / name for name in ("history_states.csv", "working_sets.csv", "ceilings.csv")]
     if any(file.exists() for file in supplemental):
         exported["working_set_study"] = working_set_analysis(max_thread, logical_bytes, stream_summary)
+    if (RESULTS / "gdn_long_repeats.csv").exists():
+        keys = ("mode", "length", "threads", "pinned")
+        longer = group(read("gdn_long_repeats.csv"), keys, "tokens_s")
+        exported["long_repeat_study"] = {
+            "measurements": [{**dict(zip(keys, key)), **value} for key, value in longer.items()],
+            "six_core_median_cv": {
+                "short": stats.median(summary[key]["sd"] / summary[key]["mean"]
+                                      for key in longer if int(key[2]) == max_thread),
+                "long": stats.median(value["sd"] / value["mean"]
+                                     for key, value in longer.items() if int(key[2]) == max_thread),
+            },
+        }
     (RESULTS / "summary.json").write_text(json.dumps(exported, indent=2))
     print(f"Summarized {len(gdn)} GDN rows and {len(stream)} STREAM rows.")
 

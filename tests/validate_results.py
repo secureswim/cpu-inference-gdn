@@ -71,5 +71,22 @@ if study:
     assert len(list((ROOT / "output/plots").glob("*.png"))) == 9
 else:
     assert len(list((ROOT / "output/plots").glob("*.png"))) == 6
+if (ROOT / "results/gdn_long_repeats.csv").exists():
+    follow_up = rows("gdn_long_repeats.csv")
+    expected_long = {(mode, str(length), str(n), "1")
+                     for mode, n, lengths in (("decode", 1, (1024, 8192, 32768)),
+                                               ("decode", thread_count, (1024, 8192, 32768)),
+                                               ("prefill", thread_count, (512, 4096, 32768)),
+                                               ("prefill", 1, (4096,)))
+                     for length in lengths}
+    assert Counter(keys(row) for row in follow_up) == dict.fromkeys(expected_long, 3)
+    for key in expected_long:
+        assert {r["repeat"] for r in follow_up if keys(r) == key} == {"0", "1", "2"}
+    for row in follow_up:
+        assert float(row["seconds"]) >= 2.0
+        assert math.isclose(float(row["tokens_s"]), float(row["tokens"]) / float(row["seconds"]), rel_tol=2e-9)
+        assert 0 < float(row["peak_rss_bytes"]) < 4.5e9 and float(row["free_ram_bytes"]) > 1e9
+    follow_up_env = json.loads((ROOT / "results/long_repeats_environment.json").read_text())
+    assert follow_up_env["ac_power_checks_passed"] and follow_up_env["browser_and_ide_window_checks_passed"]
 print(f"Validated {len(gdn)} GDN and {len(stream)} STREAM rows, supplemental study when present, "
       "four report pages and 600 seconds of talk timings.")

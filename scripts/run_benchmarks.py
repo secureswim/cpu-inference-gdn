@@ -163,6 +163,57 @@ def measure_stream(cpus):
             print(f"STREAM threads={threads}", flush=True)
 
 
+def measure_gdn(configs, clean, minimum_seconds=0.35, filename="gdn_raw.csv"):
+    with (RESULTS / filename).open("w", newline="") as file:
+        writer = csv.writer(file)
+        writer.writerow(GDN_COLUMNS)
+        order = [(config, None) for config in configs]
+        if clean:
+            rng = random.Random(2023522)
+            order = []
+            for repeat in range(3):
+                round_configs = configs.copy()
+                rng.shuffle(round_configs)
+                order.extend((config, repeat) for config in round_configs)
+        for (mode, length, threads, pinned), repeat in order:
+            if clean:
+                require_clean_conditions()
+            command = [BIN / f"gdn{SUFFIX}", "bench", threads, mode, length, pinned]
+            output = execute(command + ([1, minimum_seconds] if clean else []))
+            rows = list(csv.reader(output.splitlines()))
+            if len(rows) != (1 if clean else 3) or any(len(row) != len(GDN_COLUMNS) for row in rows):
+                raise RuntimeError(f"Unexpected measurement output {output}")
+            for row in rows:
+                if float(row[6]) < minimum_seconds or float(row[8]) > 4.5e9 or float(row[9]) < 1e9:
+                    raise RuntimeError("Run violates timing or memory requirements")
+                if repeat is not None:
+                    row[4] = repeat
+            writer.writerows(rows)
+            file.flush()
+            print(f"GDN {mode} length={length} threads={threads} pinned={pinned}", flush=True)
+
+
+def long_repeats():
+    RESULTS.mkdir(parents=True, exist_ok=True)
+    background = require_clean_conditions()
+    hardware = dict(line.split("=", 1) for line in execute([BIN / f"machine{SUFFIX}"]).splitlines())
+    cores = len([mask for mask in hardware["p_core_masks"].split(",") if mask])
+    configs = [("decode", length, n, 1) for n in (1, cores) for length in (1024, 8192, 32768)]
+    configs += [("prefill", length, cores, 1) for length in (512, 4096, 32768)]
+    configs.append(("prefill", 4096, 1, 1))
+    start = time.strftime("%Y-%m-%dT%H:%M:%S%z")
+    measure_gdn(configs, clean=True, minimum_seconds=2.0, filename="gdn_long_repeats.csv")
+    require_clean_conditions()
+    metadata = {
+        "start": start, "end": time.strftime("%Y-%m-%dT%H:%M:%S%z"),
+        "cpu": hardware["cpu"], "p_core_count": cores, "repeats": 3, "minimum_seconds": 2.0,
+        "effective_power_overlay": power_overlay(), "ac_power_checks_passed": True,
+        "browser_and_ide_window_checks_passed": True, "background_browser_ide_processes_at_start": background,
+        "run_order_seed": 2023522,
+    }
+    (RESULTS / "long_repeats_environment.json").write_text(json.dumps(metadata, indent=2) + "\n")
+
+
 def sweep(allow_battery=False, stream_only=False, clean=False):
     RESULTS.mkdir(parents=True, exist_ok=True)
     background = require_clean_conditions() if clean else []
@@ -198,33 +249,7 @@ def sweep(allow_battery=False, stream_only=False, clean=False):
                for length in lengths]
     configs += [("decode", 1024, len(cpus), 0), ("prefill", 4096, len(cpus), 0),
                 ("profile", 1024, 1, 1), ("profile_prefill", 4096, 1, 1)]
-    with (RESULTS / "gdn_raw.csv").open("w", newline="") as file:
-        writer = csv.writer(file)
-        writer.writerow(GDN_COLUMNS)
-        order = [(config, None) for config in configs]
-        if clean:
-            rng = random.Random(2023522)
-            order = []
-            for repeat in range(3):
-                round_configs = configs.copy()
-                rng.shuffle(round_configs)
-                order.extend((config, repeat) for config in round_configs)
-        for (mode, length, threads, pinned), repeat in order:
-            if clean:
-                require_clean_conditions()
-            command = [BIN / f"gdn{SUFFIX}", "bench", threads, mode, length, pinned]
-            output = execute(command + ([1] if clean else []))
-            rows = list(csv.reader(output.splitlines()))
-            if len(rows) != (1 if clean else 3) or any(len(row) != len(GDN_COLUMNS) for row in rows):
-                raise RuntimeError(f"Unexpected measurement output {output}")
-            for row in rows:
-                if float(row[8]) > 4.5e9 or float(row[9]) < 1e9:
-                    raise RuntimeError("Run violates memory budget or free-memory threshold")
-                if repeat is not None:
-                    row[4] = repeat
-            writer.writerows(rows)
-            file.flush()
-            print(f"GDN {mode} length={length} threads={threads} pinned={pinned}", flush=True)
+    measure_gdn(configs, clean)
     if clean:
         require_clean_conditions()
     measure_stream(cpus)
@@ -240,9 +265,16 @@ if __name__ == "__main__":
     parser.add_argument("--stream-only", action="store_true")
     parser.add_argument("--clean-rerun", action="store_true",
                         help="Verify laptop conditions, interleave repeats, and collect working-set and ceiling data")
+    parser.add_argument("--long-repeats", action="store_true",
+                        help="Collect a separate AC-powered two-second timing study")
     parser.add_argument("--output", type=Path, default=RESULTS)
     args = parser.parse_args()
     if args.clean_rerun and (args.allow_battery or args.stream_only):
         parser.error("--clean-rerun requires the full AC-powered sweep")
+    if args.long_repeats and (args.clean_rerun or args.allow_battery or args.stream_only):
+        parser.error("--long-repeats is a separate AC-powered timing study")
     RESULTS = args.output.resolve()
-    sweep(args.allow_battery, args.stream_only, args.clean_rerun)
+    if args.long_repeats:
+        long_repeats()
+    else:
+        sweep(args.allow_battery, args.stream_only, args.clean_rerun)

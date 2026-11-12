@@ -68,7 +68,10 @@ def make_report():
     latency6 = 1e6 / gd("decode", 1024)["mean"]
     six = study["ceilings"][-1]
     bw = six["dram_stream"]
+    # Six-worker Triad mean from results/summary.json at revision 3bb2993.
+    prior_bw = 80.9549333333333
     predicted = bw * 1e9 / data["gdn_logical_bytes"]
+    prior_prediction = prior_bw * 1e9 / data["gdn_logical_bytes"]
     pinned = gd("decode", 1024)["mean"]
     unpinned = gd("decode", 1024, pin=0)["mean"]
     max_history = max(float(row["max_abs_from_1024"]) for row in study["history"])
@@ -94,7 +97,8 @@ def make_report():
     add(paragraph(f"The interleaved sweep ran on AC power in Best Performance mode. {escape(app_note)} Each configuration had a warmup and three repeats of at least 0.35 s. Prefill starts from zero and uses 128-token chunks. Decode advances the state through the starting history before timing. Error bars show sample SD."))
     add(figure("length_sweeps", height=155))
     add(paragraph(f"<b>History control.</b> All lengths end at the same phase of a repeated 128-token block. {history_note} These runs test fixed work per decode step. The earlier six-worker slowdown at 32k did not recur in the clean rerun."))
-    add(paragraph("The synthetic update uses normalized keys, beta = 0.3 and a scalar decay multiplier exp(-0.05) = 0.951. The decay shrinks differences inherited from earlier states, while the key-directed correction further damps the component along the key. That explains why the repeated block produces nearly the same state at all three history lengths."))
+    short_history = [gd("decode", length, 1)["mean"] for length in (8192, 32768)]
+    add(paragraph(f"The repeated block uses normalized keys and a decay of exp(-0.05) = 0.951, which damps differences from earlier states. Despite essentially identical starting work, the one-core means at 8k and 32k were {short_history[0]:,.0f} and {short_history[1]:,.0f} tokens/s, about {(max(short_history)/min(short_history)-1):.0%} apart. This is observed run-condition variation in the short sweep, so the context plot does not establish a length trend."))
     add(PageBreak())
 
     add(paragraph("Thread scaling and operator costs", "ReportTitle"))
@@ -104,34 +108,53 @@ def make_report():
             sweep.append([mode, f"{length:,}", measurement(gd(mode, length, 1)), measurement(gd(mode, length))])
     add(table(sweep, [62, 66, 191, 191]))
     add(paragraph(f"Six-worker speedup was {pinned/gd('decode',1024,1)['mean']:.2f}x for decode at 1k and {gd('prefill',4096)['mean']/gd('prefill',4096,1)['mean']:.2f}x for prefill at 4k. Prefill shares graph dispatch and initial state copying across a 128-token chunk. Single-token decode pays those costs on each graph call."))
-    add(figure("thread_scaling", height=150))
+    follow_up = data.get("long_repeat_study")
+    if follow_up:
+        def longer(mode, length, n):
+            return next(r for r in follow_up["measurements"] if
+                        (r["mode"], int(r["length"]), int(r["threads"])) == (mode, length, n))
+
+        cv = follow_up["six_core_median_cv"]
+        prefill_speedup = longer("prefill", 4096, threads)["mean"] / longer("prefill", 4096, 1)["mean"]
+        decode_speedup = longer("decode", 1024, threads)["mean"] / longer("decode", 1024, 1)["mean"]
+        long_history = [longer("decode", length, 1)["mean"] for length in (1024, 8192, 32768)]
+        add(paragraph(f"<b>Two-second follow-up.</b> Three interleaved repeats at ten settings gave a median six-core relative SD of {cv['long']:.0%}, versus {cv['short']:.0%} in the short sweep. Six-core speedups were {prefill_speedup:.2f}x for 4k prefill and {decode_speedup:.2f}x for 1k decode. One-core decode means were within {(max(long_history)/min(long_history)-1):.1%} across histories. The table and plot show the full short sweep."))
+        follow_up_env = json.loads((ROOT / "results/long_repeats_environment.json").read_text())
+        background = follow_up_env["background_browser_ide_processes_at_start"]
+        if background:
+            add(paragraph(escape("Browser and IDE windows were closed for the follow-up. Background processes at startup included " + ", ".join(background) + "."), "SmallNote"))
+    add(figure("thread_scaling", height=139))
     add(paragraph("Profiling the two state copies", "ReportHeading"))
     descriptions = []
     for mode, label in (("profile", "decode"), ("profile_prefill", "prefill")):
         ordered = sorted(data["phase_percent"][mode].items(), key=lambda x: x[1], reverse=True)[:3]
         descriptions.append(label.capitalize() + " spends its largest measured shares on " + ", ".join(f"{name.lower()} ({value:.1f}%)" for name, value in ordered) + ".")
     add(paragraph(" ".join(descriptions)))
-    add(figure("operator_breakdown", height=144))
+    add(figure("operator_breakdown", height=130))
+    g1 = rotating(1, 1)["graph_us"]["mean"]
+    g6 = rotating(threads, 1)["graph_us"]["mean"]
     c1 = rotating(1, 1)["carry_us"]["mean"]
     c6 = rotating(threads, 1)["carry_us"]["mean"]
-    serial_share = c1 / rotating(1, 1)["diagnostic_us"]["mean"]
-    add(paragraph(f"The ggml initial copy runs inside worker-owned head ranges. The separate driver copy executes serially after graph completion. With one rotating state, it averaged {c1:.0f} µs on one worker and {c6:.0f} µs on six. It was {serial_share:.0%} of the one-worker diagnostic, implying an idealized Amdahl ceiling of {1/serial_share:.2f}x if this were the only serial cost. The scoped operator percentages exclude the driver copy and graph scheduling."))
+    add(paragraph(f"With one state, graph time fell from <b>{g1:.0f} to {g6:.0f} µs</b> from one to six workers, a {(1-g6/g1):.0%} reduction. The separate serial driver copy rose from <b>{c1:.0f} to {c6:.0f} µs</b>, offsetting that small gain. The ggml graph, including its parallel initial copy, barely scaled even before the driver copy. The non-NUMA path assigns the 32 heads as 16 dynamically claimed two-head chunks behind a barrier. We did not measure cache ownership or per-worker imbalance."))
     if sampled:
         add(paragraph(escape(sampled["report_note"]), "SmallNote"))
     else:
         add(paragraph("Scoped timing supplies the phase breakdown. Windows blocked WPR sampling with policy error 0xc5585011.", "SmallNote"))
     add(PageBreak())
 
-    add(paragraph("Working-set size and bandwidth ceilings", "ReportTitle"))
+    add(paragraph("Own experiment on working-set size", "ReportTitle"))
     add(paragraph("Each test uses one reusable graph and cycles through 1, 4, 12 or 36 independent recurrent states. It keeps the per-step arithmetic, input tensors and output workspace fixed. The 36-state case models 72 MiB of recurrent state, above the 24 MiB shared L3. It represents the state footprint of Qwen3-Next's 36 GDN layers, while the graph still isolates the recurrence."))
     add(figure("working_sets", height=170))
     a, b = rotating(1, 1)["latency_us"]["mean"], rotating(1, 36)["latency_us"]["mean"]
     c, d = rotating(threads, 1)["latency_us"]["mean"], rotating(threads, 36)["latency_us"]["mean"]
     add(paragraph(f"One to 36 states changed latency from <b>{a:.0f} to {b:.0f} µs</b> on one P core and from <b>{c:.0f} to {d:.0f} µs</b> on six. Latency showed no consistent increase with footprint. The 36-state round took {36*b/1000:.1f} and {36*d/1000:.1f} ms, respectively, including all recurrent updates and their driver copies. Full-model inference also includes projections, attention and MoE computation."))
+    add(paragraph(f"The one-state rotation baseline was {a:.0f} µs versus {latency1:.0f} µs in the main one-core sweep, about {(a/latency1-1):.0%} higher. These are separate runs with different state initialization and timing loops. Their difference gives context for small effects within the rotation test."))
     add(paragraph("Measured cache-size, DRAM and compute references", "ReportHeading"))
     add(figure("cache_roofline", height=178))
     add(paragraph(f"The scalar-gated recurrence performs about {study['flops_per_step']/1e6:.2f} MFLOP per step, counting FMA as two operations and excluding exponentials. The logical lower bound is {data['gdn_logical_bytes']/2**20:.2f} MiB per step, or {study['logical_flops_per_byte']:.3f} FLOP/byte. It includes the input/output state copy, the driver copy and small tensors. Additional passes raise traffic, and cache residency changes how many bytes reach DRAM. Both operating points use this same logical denominator."))
-    add(paragraph(f"At six cores, the 1 MiB and 16 MiB copy footprints sustained {six['l2_1mib']:.1f} and {six['l3_16mib']:.1f} GB/s, STREAM Triad measured {bw:.2f} GB/s and the FMA loop measured {six['compute_gflops']:.0f} GFLOP/s. Cache-sized copy results are empirical reference rates. The plot does not identify which cache served each request."))
+    one = study["ceilings"][0]
+    logical_gbs = data["gdn_logical_bytes"] / (b * 1000)
+    add(paragraph(f"On one core, 36 states imply <b>{logical_gbs:.1f} GB/s</b> of logical traffic versus <b>{one['dram_copy_192mib']:.1f} GB/s</b> for the large-buffer copy. Both decode points also sit below the cache-copy ceilings. <b>Within this test, the evidence points to the kernel loops, repeated state passes and two copies as the main costs, with no clear penalty from exceeding L3.</b> The logical rate does not measure actual DRAM traffic."))
     add(PageBreak())
 
     add(paragraph("Memory, shared reference and conclusions", "ReportTitle"))
@@ -139,11 +162,13 @@ def make_report():
     add(figure("state_vs_kv", height=165))
     add(paragraph(f"The recurrent state is 32 x 128 x 128 FP32 values, or <b>2 MiB per layer</b>. Each Qwen3-Next full-attention layer has two KV heads of width 256. F16 keys and values cost 2 KiB per token, or <b>64 MiB per layer at 32,768 tokens</b>. The storage model excludes weights, convolution state and compute buffers. The laptop GDN sweep's peak process working set was {data['max_gdn_rss']/2**20:.1f} MiB, with at least {data['min_free_ram']/2**30:.2f} GiB of free RAM."))
     add(paragraph("Assignment bandwidth comparison", "ReportHeading"))
-    add(Table([[figure("roofline", 260, 131), paragraph(f"At six cores, STREAM divided by logical bytes per step estimates {predicted:,.0f} tokens/s. The 1k-history decode measurement is {pinned:,.0f} tokens/s. This comparison assumes the counted traffic reaches DRAM. The cache-sized copy tests and rotating states expose the role of footprint. Timing also includes multiple state passes and graph coordination. Placement changed mean decode throughput by {(pinned/unpinned-1)*100:+.1f}% in the secondary affinity experiment.", "SmallNote")]], colWidths=[265, 245]))
+    add(Table([[figure("roofline", 260, 131), paragraph(f"Six-core STREAM Triad was {prior_bw:.2f} GB/s in the first sweep and {bw:.2f} GB/s in the clean sweep. That changes the logical prediction from {prior_prediction:,.0f} to {predicted:,.0f} tokens/s. The clean 1k decode result was {pinned:,.0f} tokens/s. We did not isolate the cause of the STREAM change. In the secondary affinity test, pinned decode went from 4.1% faster to {abs(pinned/unpinned-1):.1%} slower than OS placement.", "SmallNote")]], colWidths=[265, 245]))
     add(paragraph("Shared PARAM Rudra CPU reference", "ReportHeading"))
     add(paragraph(f"Llama 3.2 1B Instruct Q4_K_M ran on four Xeon Gold 6240R threads with a 512-token prompt and 128-token decode. Job 186881 averaged {rudra['avg_ts']:.2f} +/- {rudra['stddev_ts']:.2f} combined tokens/s. Rerun 186891 averaged <b>{rerun['avg_ts']:.2f} +/- {rerun['stddev_ts']:.2f} tokens/s</b> over three repeats and measured <b>{rudra_rss/2**30:.2f} GiB peak RSS</b> via Linux child process accounting.", "SmallNote"))
+    add(paragraph("What we learned", "ReportHeading"))
+    add(paragraph("• GDN state stays fixed per layer. Exceeding shared L3 with 36 states produced no consistent latency penalty in this experiment.<br/>• The single-token graph barely sped up at six workers, and its serial carry became slower. Prefill amortizes per-call costs across a chunk.<br/>• Bulk bandwidth provides a reference. Traversing, copying and scheduling the state help explain the observed decode latency."))
     add(paragraph("Reproduction and sources", "ReportHeading"))
-    add(paragraph("The repository contains pinned source, raw samples, correctness checks, clean-run scripts and plots. Primary sources are ggml-org/llama.cpp at 8bb3cf0d, Qwen/Qwen3-Next-80B-A3B-Instruct config.json, McCalpin STREAM 5.10 and Intel's Core Ultra 9 185H specifications.", "SmallNote"))
+    add(paragraph("The repository contains raw samples, scripts and plots. The first STREAM sweep is archived at commit 3bb2993. Primary sources are llama.cpp at 8bb3cf0d, the official Qwen3-Next configuration, STREAM 5.10 and Intel's Core Ultra 9 185H specifications.", "SmallNote"))
     path = OUT / "pdf/Project_1_Report.pdf"
     path.parent.mkdir(parents=True, exist_ok=True)
     def footer(canvas, doc):
