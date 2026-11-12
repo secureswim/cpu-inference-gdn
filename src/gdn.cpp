@@ -68,9 +68,75 @@ struct Graph {
     }
     void advance() {
         compute();
+        carry_state();
+    }
+    void carry_state() {
         std::memcpy(state->data,static_cast<float *>(out->data)+tokens*HV*D,STATE*4);
     }
 };
+
+void history_check(int threads) {
+    Graph chunk(128, threads);
+    std::vector<float> baseline(STATE);
+    const auto *state = static_cast<float *>(chunk.state->data);
+    int history = 0;
+    std::cout << "history,threads,max_abs_from_1024,changed_elements\n";
+    for (int length : {1024, 8192, 32768}) {
+        for (; history < length; history += 128) chunk.advance();
+        if (length == 1024) std::copy_n(state, STATE, baseline.begin());
+        double max_difference = 0;
+        size_t changed = 0;
+        for (size_t i = 0; i < STATE; ++i) {
+            const double difference = std::abs(double(state[i]) - baseline[i]);
+            if (!std::isfinite(difference)) throw std::runtime_error("Nonfinite history state");
+            max_difference = std::max(max_difference, difference);
+            changed += difference != 0;
+        }
+        std::cout << length << ',' << threads << ',' << max_difference << ',' << changed << '\n';
+    }
+}
+
+void rotate_states(int threads, int count, bool diagnostic) {
+    Graph graph(1, threads);
+    void *owned_state = graph.state->data;
+    std::vector<float> states(size_t(count) * STATE);
+    std::cout << "states,threads,diagnostic,repeat,steps,seconds,graph_seconds,carry_seconds,peak_rss_bytes\n";
+    for (int repeat = 0; repeat < 3; ++repeat) {
+        // Touch every input buffer and warm one full round before starting the clock.
+        for (int slot = 0; slot < count; ++slot) {
+            auto *state = states.data() + size_t(slot) * STATE;
+            std::fill_n(state, STATE, 0.001f * float(slot + 1));
+            graph.state->data = state;
+            graph.advance();
+        }
+        double graph_seconds = 0;
+        double carry_seconds = 0;
+        size_t steps = 0;
+        double elapsed = 0;
+        const auto start = Clock::now();
+        do {
+            for (int slot = 0; slot < count; ++slot) {
+                graph.state->data = states.data() + size_t(slot) * STATE;
+                if (diagnostic) {
+                    const auto before_graph = Clock::now();
+                    graph.compute();
+                    const auto before_copy = Clock::now();
+                    graph.carry_state();
+                    const auto after_copy = Clock::now();
+                    graph_seconds += std::chrono::duration<double>(before_copy - before_graph).count();
+                    carry_seconds += std::chrono::duration<double>(after_copy - before_copy).count();
+                } else {
+                    graph.advance();
+                }
+            }
+            steps += count;
+            elapsed = std::chrono::duration<double>(Clock::now() - start).count();
+        } while (elapsed < 0.5);
+        std::cout << count << ',' << threads << ',' << diagnostic << ',' << repeat << ',' << steps
+                  << ',' << elapsed << ',' << graph_seconds << ',' << carry_seconds << ',' << peak_rss() << '\n';
+    }
+    graph.state->data = owned_state;
+}
 
 void check() {
     Graph a(1,1);
@@ -124,12 +190,30 @@ void check() {
 }
 
 int main(int argc,char **argv) try {
-    if(argc<2) throw std::runtime_error("Usage: gdn check | bench threads prefill|decode|profile length pinned");
-    pin_performance_cores(argc<6 || std::stoi(argv[5])!=0);
+    if(argc<2) throw std::runtime_error("Expected check, history, rotate, or bench");
+    const std::string command = argv[1];
+    pin_performance_cores(command != "bench" || argc < 6 || std::stoi(argv[5]) != 0);
     std::cout << std::setprecision(10);
-    if(std::string(argv[1])=="check") { check(); return 0; }
-    if(argc!=6) throw std::runtime_error("Expected bench threads mode length pinned");
-    if(std::string(argv[1])!="bench") throw std::runtime_error("Unknown command");
+    if(command=="check") { check(); return 0; }
+    if (command == "history" && argc == 3) {
+        const int threads = std::stoi(argv[2]);
+        if (threads < 1 || threads > 512) throw std::runtime_error("Expected 1..512 threads");
+        history_check(threads);
+        return 0;
+    }
+    if (command == "rotate" && argc == 5) {
+        const int threads = std::stoi(argv[2]);
+        const int count = std::stoi(argv[3]);
+        const std::string diagnostic = argv[4];
+        if (threads < 1 || threads > 512 || count < 1 || count > 36 ||
+            (diagnostic != "0" && diagnostic != "1")) {
+            throw std::runtime_error("Expected rotate threads states diagnostic (1..36 states, 0 or 1)");
+        }
+        rotate_states(threads, count, diagnostic == "1");
+        return 0;
+    }
+    if(command!="bench" || argc<6 || argc>8)
+        throw std::runtime_error("Expected bench threads mode length pinned [repeats] [minimum_seconds]");
     int threads=std::stoi(argv[2]), length=std::stoi(argv[4]);
     std::string mode=argv[3];
     if(mode!="prefill" && mode!="decode" && mode!="profile" && mode!="profile_prefill")
@@ -140,7 +224,7 @@ int main(int argc,char **argv) try {
         throw std::runtime_error("Pinned must be 0 or 1");
     if(free_ram()<1000000000ULL) throw std::runtime_error("Insufficient free RAM");
     Graph decode(1,threads), chunk(128,threads);
-    if(mode=="decode") {
+    if(mode=="decode" || mode=="profile") {
         for(int t=0;t<length;t+=128) chunk.advance();
         std::memcpy(decode.state->data,chunk.state->data,STATE*4);
     }
@@ -150,7 +234,11 @@ int main(int argc,char **argv) try {
     std::vector<float> initial(STATE);
     std::memcpy(initial.data(),a.state->data,STATE*4);
     a.advance();
-    for(int repeat=0;repeat<3;++repeat) {
+    const int repeats = argc >= 7 ? std::stoi(argv[6]) : 3;
+    const double minimum_seconds = argc == 8 ? std::stod(argv[7]) : 0.35;
+    if (repeats < 1 || repeats > 3 || !std::isfinite(minimum_seconds) || minimum_seconds < 0.35)
+        throw std::runtime_error("Expected 1..3 repeats and at least 0.35 seconds");
+    for(int repeat=0;repeat<repeats;++repeat) {
         int calls=0;
         double elapsed=0;
         std::memcpy(a.state->data,initial.data(),STATE*4);
@@ -162,7 +250,7 @@ int main(int argc,char **argv) try {
             for(int j=0;j<blocks;++j) a.advance();
             ++calls;
             elapsed=std::chrono::duration<double>(Clock::now()-start).count();
-        } while(elapsed<0.35);
+        } while(elapsed<minimum_seconds);
         project_profile_enable(0);
         double tokens=double(calls)*(prefill ? length : 1);
         std::cout << mode << "," << length << "," << threads << "," << argv[5] << ","

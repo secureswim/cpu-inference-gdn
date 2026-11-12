@@ -17,7 +17,14 @@ const readJSON = async file => JSON.parse(await fs.readFile(path.join(root, 'res
 const data = await readJSON('summary.json');
 const env = await readJSON('environment.json');
 const correctness = await readJSON('gdn_correctness.json');
-const [rudra] = await readJSON('param-rudra/186881/reference.json');
+const [rudra] = await readJSON('param-rudra/186891/reference.json');
+const rudraMemory = await readJSON('param-rudra/186891/peak-rss.json');
+const study = data.working_set_study;
+const sampledPath = path.join(root, 'results/profiles/sampled.json');
+const sampled = await fs.readFile(sampledPath, 'utf8').then(JSON.parse).catch(error => {
+  if (error.code !== 'ENOENT') throw error;
+  return null;
+});
 
 const cores = data.max_threads;
 const threads = Array.from({ length: cores }, (_, i) => i + 1);
@@ -30,6 +37,9 @@ const fmt = n => Math.round(n).toLocaleString('en-US');
 const rate = row => fmt(row.mean) + ' ± ' + fmt(row.sd);
 const delta = (a, b) => (100 * (a.mean / b.mean - 1)).toFixed(1);
 const mib = bytes => bytes / 2 ** 20;
+const step = n => 1e6 / sample('decode', 1024, n).mean;
+const rotation = (n, states) => study.measurements.find(row => row.threads === n && row.states === states);
+const historyDelta = Math.max(...study.history.map(row => Number(row.max_abs_from_1024)));
 const opSource = 'https://github.com/ggml-org/llama.cpp/blob/' + env.llama_commit + '/ggml/src/ggml-cpu/ops.cpp';
 
 const paper = '#F7F5EF';
@@ -122,19 +132,19 @@ function lengthChart(s, mode, lengths, xTitle, max) {
 
 {
   const s = slide('Gated DeltaNet on a laptop CPU', 25,
-    'We measured one Gated DeltaNet layer on a laptop CPU. The experiment asks how much one decode step costs and how its recurrent state compares with the memory used by an attention layer. I will also show the prefill and thread sweeps, explain the bandwidth prediction, and close with the shared PARAM Rudra test.',
+    'At one thousand twenty-four tokens of starting history, one decode step took about ' + fmt(step(1)) + ' microseconds on one performance core and ' + fmt(step(cores)) + ' on six. That measures one recurrent layer, including the driver state copy. We then changed the number of recurrent states to test how the memory footprint affects latency.',
     'Project 1 assignment brief, Option 5. Repository README and results/.', { cover: true });
   text(s, 'PROJECT 1  /  OPTION 5  /  GROUP 4', 72, 73, 820, 36, { size: 22, color: mint, bold: true });
   text(s, 'Gated DeltaNet\non a laptop CPU', 66, 158, 1120, 240,
     { size: 89, color: paper, bold: true });
-  text(s, 'Throughput, scaling, and state memory in llama.cpp', 72, 440, 1110, 65,
+  text(s, fmt(step(1)) + ' µs on 1 P core  /  ' + fmt(step(cores)) + ' µs on 6 P cores per decode step', 72, 440, 1110, 65,
     { size: 32, color: mint });
   text(s, 'Siddharth Kumar (2023522)\nVaishnavi Srivastava (2023574)', 72, 570, 1050, 100,
     { size: 28, color: paper });
 }
 
 {
-  const s = slide('The Gated DeltaNet recurrence', 65,
+  const s = slide('The Gated DeltaNet recurrence', 55,
     'Read these equations for one value head and one token. M sub t minus one is the incoming state. First we multiply the old state by the exponential of the log-decay gate. The resulting matrix, M bar, predicts the value from the current key. The difference between the actual value and that prediction is the residual. Beta scales that residual. Its outer product with the key adds a rank-one correction to the state. Finally the updated state multiplies the query, and we divide by the square root of the head dimension. The sixteen query and key heads are shared across thirty-two value heads using the value head index modulo sixteen. The state shape is fixed as the sequence grows.',
     'FP64 cross-check in src/gdn.cpp.\n' + opSource);
   const equations = [
@@ -156,19 +166,19 @@ function lengthChart(s, mode, lengths, xTitle, max) {
 }
 
 {
-  const s = slide('Laptop setup and timing protocol', 45,
-    'The laptop has six performance cores and eight efficiency-class cores reported by Windows. We pin one worker per physical performance core and sweep one through six workers. The fused operator runs in a CPU-only ggml build using AVX2 and FMA. Each configuration gets a warmup followed by three repeats. Prefill processes chunks of one hundred twenty-eight tokens, while decode restores its starting history before every repeat. We record elapsed time and peak working set. The laptop is plugged in with Best Performance selected, and desktop applications remained open. We treat that activity as a possible source of variation.',
+  const s = slide('Laptop setup and timing protocol', 40,
+    'The laptop has six performance cores, eight efficiency cores and two low-power efficiency cores. The affinity mask uses one hardware thread per performance core. We sweep one through six workers with a CPU-only AVX2 and FMA build. Each configuration has a warmup and three timed repeats. A seeded order interleaves configurations. Prefill processes chunks of one hundred twenty-eight tokens, and decode restores its starting history before timing. The rerun used AC power and Best Performance with the browser and IDE windows closed.',
     'results/hardware.txt, results/environment.json, results/power-confirmation.json, results/build-info.txt');
   text(s, 'Intel Core Ultra 9 185H', 63, 141, 1150, 64, { size: 41, bold: true, color: teal });
   label(s, 'Hardware', 66, 251, 470);
-  text(s, '6 P cores · 8 efficiency-class cores¹\n32 GB-class RAM · 24 MiB shared L3\nP-core cache 48 KiB L1D · 64 KiB L1I · 2 MiB L2\nAVX2/FMA build · AVX-512 unavailable', 64, 298, 565, 193, { size: 23 });
+  text(s, '6 P-cores · 8 E-cores · 2 low-power E-cores\n32 GB-class RAM · 24 MiB shared L3\nP-core cache 48 KiB L1D · 64 KiB L1I · 2 MiB L2\nAVX2/FMA build · AVX-512 unavailable', 64, 298, 565, 193, { size: 23 });
   label(s, 'Timing', 663, 251, 470);
   text(s, '1–6 pinned P-core workers\nWarmup, then 3 repeats ≥ 0.35 s each\n128-token prefill chunks\nAC power · Windows Best Performance', 661, 298, 548, 193, { size: 23 });
-  foot(s, '¹ Core classes reported by Windows. Desktop applications remained open during the runs.');
+  foot(s, 'Browser and IDE windows closed. Chrome and Edge processes absent at startup.');
 }
 
 {
-  const s = slide('Correctness against an FP64 reference', 55,
+  const s = slide('Correctness against an FP64 reference', 45,
     'We checked the same fused ggml operator used in the timing runs. The scalar reference implements the recurrence independently in double precision. Across a thousand recurrent steps, the query, key and value inputs change while the state carries forward. We compare both the output and the state after each step because errors in the state can affect future tokens. The largest absolute differences are about one times ten to the minus seven in state and about one times ten to the minus eight in output. We also compare one graph processing seventeen tokens with seventeen single-token graphs. The comparison returns zero difference for the tested input. These checks take the place of a model-level sanity check for this operator-only option.',
     'src/gdn.cpp, results/gdn_correctness.json');
   const sci = n => n.toExponential(2).replace('e-7', ' × 10⁻⁷').replace('e-8', ' × 10⁻⁸');
@@ -184,23 +194,24 @@ function lengthChart(s, mode, lengths, xTitle, max) {
 {
   const one = sample('decode', 1024, 1);
   const six = sample('decode', 1024);
-  const s = slide('Decode speed vs. starting context', 50,
-    'Each point measures one-token calls after advancing the state through the context shown on the horizontal axis. The timer includes the driver’s state carry. On one core, the mean remains between about two thousand one hundred and two thousand two hundred tokens per second across the three contexts. At one thousand twenty-four tokens the reciprocal of the mean throughput is ' + (1000 / one.mean).toFixed(2) + ' milliseconds per token. At six cores that same configuration reaches ' + rate(six) + ' tokens per second. The six-core mean falls at thirty-two thousand seven hundred sixty-eight tokens even though the state allocation and work per step stay fixed. These runs cannot isolate the cause of the fall.',
+  const s = slide('Decode speed vs. starting context', 45,
+    'Each point times single-token calls after preparing the context shown. Every history uses the same seeded block of one hundred twenty-eight tokens and ends at the same block boundary. The maximum difference between the prepared states was ' + (historyDelta === 0 ? 'zero' : historyDelta.toExponential(2)) + '. The tensor sizes and work per step stay fixed. The timing spread and the interleaved run order matter when interpreting differences. At one thousand twenty-four history, the one-core measurement is ' + fmt(step(1)) + ' microseconds per step. Six cores reached ' + rate(six) + ' tokens per second.',
     'results/gdn_raw.csv, results/summary.json, output/plots/length_sweeps.pdf');
-  lengthChart(s, 'decode', [1024, 8192, 32768], 'Starting context (tokens)', 2500);
+  lengthChart(s, 'decode', [1024, 8192, 32768], 'Starting context (tokens)');
   stat(s, (1000 / one.mean).toFixed(2) + ' ms', 'Per token at 1,024 context\non one P core', 860, 180);
   label(s, '6 P cores at 32,768 tokens', 865, 390);
   text(s, rate(sample('decode', 32768)), 861, 433, 350, 60, { size: 35, bold: true, color: rust });
   text(s, 'tokens/s', 865, 484, 300, 34, { size: 21, color: muted });
-  foot(s, 'Three repeats per point. Chart shows means. The callout gives mean ± sample SD.');
+  foot(s, 'Largest elementwise difference between prepared states was ' +
+    (historyDelta === 0 ? 'zero.' : historyDelta.toExponential(2) + '.'));
 }
 
 {
   const fourK = sample('prefill', 4096);
-  const s = slide('Prefill speed vs. prompt length', 45,
-    'Prefill processes complete prompts of five hundred twelve, four thousand ninety-six and thirty-two thousand seven hundred sixty-eight tokens. The driver uses fixed-size chunks of one hundred twenty-eight tokens and starts each full prompt from zero state. The same seeded input block repeats across chunks, keeping the buffers bounded. At four thousand ninety-six tokens, six P cores reach ' + rate(fourK) + ' tokens per second across three repeats. At the longest prompt the mean is ' + fmt(sample('prefill', 32768).mean) + '. That is a lower rate, with considerable repeat variation. The next slide holds prompt length constant to isolate the effect of worker count.',
+  const s = slide('Prefill speed vs. prompt length', 40,
+    'Prefill processes complete prompts of five hundred twelve, four thousand ninety-six and thirty-two thousand seven hundred sixty-eight tokens. The driver starts each full prompt from zero state and uses fixed chunks of one hundred twenty-eight. The same seeded block repeats across chunks. At four thousand ninety-six tokens, six P cores reach ' + rate(fourK) + ' tokens per second across three repeats. At the longest prompt the six-core mean is ' + fmt(sample('prefill', 32768).mean) + '.',
     'results/gdn_raw.csv, results/summary.json, output/plots/length_sweeps.pdf');
-  lengthChart(s, 'prefill', [512, 4096, 32768], 'Prompt length (tokens)', 18000);
+  lengthChart(s, 'prefill', [512, 4096, 32768], 'Prompt length (tokens)');
   stat(s, fmt(fourK.mean), 'tokens/s at 4,096 tokens\non six P cores', 860, 180);
   label(s, 'Sample SD at this point', 865, 391);
   text(s, '±' + fmt(fourK.sd) + ' tokens/s', 861, 435, 350, 60, { size: 31, bold: true, color: rust });
@@ -209,7 +220,7 @@ function lengthChart(s, mode, lengths, xTitle, max) {
 
 {
   const speedup = (mode, length, n) => sample(mode, length, n).mean / sample(mode, length, 1).mean;
-  const s = slide('Thread scaling from one to six P cores', 45,
+  const s = slide('Thread scaling from one to six P cores', 40,
     'Here each series is normalized to its own one-core rate. The decode series starts from a one thousand twenty-four token history, and the prefill series uses a four thousand ninety-six token prompt. At six cores, prefill is ' + speedup('prefill', 4096, cores).toFixed(2) + ' times its one-core rate. Decode is ' + speedup('decode', 1024, cores).toFixed(2) + ' times its one-core rate. The backend divides work across heads. Each single-token call also pays dispatch, synchronization and state carry costs. Prefill spreads fixed call costs over one hundred twenty-eight tokens. These costs help explain the different scaling patterns.',
     'results/gdn_raw.csv, results/summary.json, output/plots/thread_scaling.pdf');
   chart(s, 'line', threads.map(String), [
@@ -224,21 +235,24 @@ function lengthChart(s, mode, lengths, xTitle, max) {
 {
   const phase = data.phase_percent;
   const names = ['Initial state copy', 'Decay', 'Delta dot products', 'Rank-one update', 'Output dot products'];
-  const s = slide('Time inside the fused operator', 60,
-    'These are scoped timer measurements from inside the fused operator with one worker. In decode, the three largest shares are initial state copy, decay, and output dot products. The rank-one update is almost tied with output dot products. In prefill the top three are output dot products, decay, and delta dot products. The same initial state copy serves the whole chunk during prefill, but decode performs it on every graph call. That changes which part of the operator dominates. The percentages normalize to the five timed phases and exclude graph scheduling and the separate state carry in the driver. We used uninstrumented runs for throughput. Windows blocked supplemental CPU sampling, so this breakdown uses scoped timers.',
-    'results/gdn_raw.csv, results/profiles/README.md, output/plots/operator_breakdown.pdf');
+  const carry = rotation(1, 1).carry_us.mean;
+  const serial = carry / rotation(1, 1).diagnostic_us.mean;
+  const s = slide('Two state copies with different costs', 55,
+    'The scoped timers measure five phases inside the fused operator on one worker. The ggml initial copy runs inside head ranges assigned to different workers, so its one-worker percentage cannot be used as a serial fraction. After ggml returns, the driver performs a separate serial copy to carry the next state. With one state that copy averages ' + fmt(carry) + ' microseconds, or ' + fmt(serial * 100) + ' percent of our diagnostic step. The operator percentages exclude this driver copy. ' +
+      (sampled ? sampled.report_note : 'Windows blocked sampled profiling. The phase chart uses scoped timing.'),
+    'results/gdn_raw.csv, results/working_sets.csv, results/profiles/, output/plots/operator_breakdown.pdf');
   chart(s, 'bar', ['State copy', 'Decay', 'Delta dots', 'State update', 'Output dots'], [
     { name: 'Decode', values: names.map(name => phase.profile[name]) },
     { name: 'Prefill', values: names.map(name => phase.profile_prefill[name]) },
-  ], { yTitle: 'Share of scoped time (%)', max: 50 });
-  stat(s, phase.profile['Initial state copy'].toFixed(1) + '%', 'Decode time share\nin the initial state copy', 860, 178);
-  stat(s, phase.profile_prefill['Initial state copy'].toFixed(1) + '%', 'Prefill time share\nin the initial state copy', 860, 380, 340, rust);
-  foot(s, 'One worker. Five timed phases inside GDN. Windows blocked sampled profiling.');
+  ], { yTitle: 'Share of scoped time (%)' });
+  stat(s, phase.profile['Initial state copy'].toFixed(1) + '%', 'Initial ggml copy share\nwithin scoped decode', 860, 175);
+  stat(s, fmt(carry) + ' µs', 'Separate serial driver copy\non one P core, one state', 860, 378, 350, rust);
+  foot(s, sampled ? sampled.slide_note : 'Scoped timings use one worker. Windows blocked sampled profiling.');
 }
 
 {
-  const s = slide('Predicted vs. measured decode speed', 65,
-    'The roofline check divides STREAM Triad bandwidth by logical bytes moved per decoded token. At six cores, STREAM gives ' + bandwidth(cores).toFixed(2) + ' gigabytes per second. The logical traffic count includes reading and writing the operator state, the driver’s state carry copy, and the small inputs and output. That is ' + mib(data.gdn_logical_bytes).toFixed(2) + ' mebibytes per token. The resulting prediction is ' + fmt(predicted(cores)) + ' tokens per second. At the same core count the measured rate is ' + fmt(sample('decode', 1024).mean) + '. The prediction charges all counted traffic to DRAM. The two mebibyte state can fit in the shared cache, so some of that traffic may be served there. The kernel also revisits state in multiple phases, and dispatch and synchronization take time. Without hardware-counter data we cannot assign a share of the gap to each cause.',
+  const s = slide('Predicted vs. measured decode speed', 45,
+    'The assignment comparison divides STREAM Triad bandwidth by our logical byte count per step. At six cores, STREAM gives ' + bandwidth(cores).toFixed(2) + ' gigabytes per second. The logical count includes two state copies and the small input and output tensors. That gives ' + fmt(predicted(cores)) + ' tokens per second compared with ' + fmt(sample('decode', 1024).mean) + ' measured. The estimate treats the counted bytes as DRAM traffic. A single state can fit in the shared cache, and graph scheduling, arithmetic, and extra state passes also take time.',
     'results/stream_raw.csv, results/gdn_raw.csv, output/plots/roofline.pdf.\nhttps://www.cs.virginia.edu/stream/');
   chart(s, 'line', threads.map(String), [
     { name: 'Measured decode · 1,024 history', values: threads.map(n => sample('decode', 1024, n).mean) },
@@ -251,62 +265,74 @@ function lengthChart(s, mode, lengths, xTitle, max) {
   label(s, 'Six-core measurement', 865, 430);
   text(s, fmt(sample('decode', 1024).mean) + ' tokens/s', 861, 468, 355, 62,
     { size: 35, bold: true, color: teal });
-  foot(s, 'The bandwidth estimate omits graph dispatch, synchronization, and additional state passes.');
+  foot(s, 'The prediction assumes that all counted bytes travel to DRAM on each step.');
 }
 
 {
   const contexts = [1024, 4096, 8192, 16384, 32768];
-  const s = slide('State memory vs. attention KV cache', 50,
-    'The Gated DeltaNet state holds thirty-two matrices, each one hundred twenty-eight by one hundred twenty-eight FP32 elements. This gives two mebibytes per layer at every context length. For attention we assume sixteen KV heads with the same head width and FP32 keys and values. Each extra token therefore adds sixteen kibibytes per layer, giving sixteen mebibytes at one thousand twenty-four tokens and five hundred twelve mebibytes at thirty-two thousand seven hundred sixty-eight. This chart compares persistent state only. Separately, the largest measured laptop process working set was ' + mib(data.max_gdn_rss).toFixed(1) + ' mebibytes. The raw results record peak working set for every configuration, including temporary buffers and runtime overhead.',
-    'src/gdn.cpp, results/summary.json, output/plots/state_vs_kv.pdf');
+  const s = slide('State memory vs. attention KV cache', 45,
+    'The Gated DeltaNet state holds thirty-two matrices of one hundred twenty-eight by one hundred twenty-eight FP32 values. This is two mebibytes per layer. Qwen3-Next full attention uses two key-value heads of width two hundred fifty-six. With F16 keys and values, each token adds two kibibytes per attention layer. At thirty-two thousand seven hundred sixty-eight tokens that gives sixty-four mebibytes. These figures describe persistent recurrence and attention KV storage. Process working set includes buffers and runtime overhead.',
+    'Qwen3-Next configuration at https://huggingface.co/Qwen/Qwen3-Next-80B-A3B-Instruct/blob/main/config.json\nsrc/gdn.cpp, output/plots/state_vs_kv.pdf');
   chart(s, 'line', contexts.map(n => fmt(n / 1024) + 'k'), [
     { name: 'GDN recurrent state', values: contexts.map(() => 2) },
-    { name: 'Attention KV cache', values: contexts.map(n => mib(2 * n * 16 * 128 * 4)) },
-  ], { xTitle: 'Context length (tokens)', yTitle: 'Persistent storage (MiB/layer)', max: 550 });
+    { name: 'Qwen3-Next attention KV (F16)', values: contexts.map(n => mib(2 * n * 2 * 256 * 2)) },
+  ], { xTitle: 'Context length (tokens)', yTitle: 'Persistent storage (MiB/layer)', max: 70 });
   stat(s, '2 MiB', 'GDN recurrent state\nacross all contexts', 860, 160);
-  stat(s, '512 MiB', 'FP32 attention KV cache\nat 32,768 tokens', 860, 365, 350, rust);
-  foot(s, 'Analytical storage comparison. Measured laptop process peak working set was ' +
+  stat(s, '64 MiB', 'F16 attention KV cache\nat 32,768 tokens', 860, 365, 350, rust);
+  foot(s, 'Analytical storage comparison. Measured main sweep peak working set was ' +
     mib(data.max_gdn_rss).toFixed(1) + ' MiB.');
 }
 
 {
-  const d = sample('decode', 1024);
-  const p = sample('prefill', 4096);
-  const dOS = sample('decode', 1024, cores, 0);
-  const pOS = sample('prefill', 4096, cores, 0);
-  const signed = (a, b) => {
-    const change = Number(delta(a, b));
-    return (change >= 0 ? '+' : '−') + Math.abs(change).toFixed(1) + '%';
-  };
-  const s = slide('Thread placement experiment', 50,
-    'For the additional experiment we held the worker count and workload fixed and changed the processor placement policy. In the first configuration, workers are restricted to the physical P cores. In the second, the operating system can choose their placement. At one thousand twenty-four context, the pinned decode mean is ' + delta(d, dOS) + ' percent higher, a difference smaller than either sample standard deviation. Prefill shows a larger observed gain of ' + delta(p, pOS) + ' percent. We ran three repeats per setting, and the configurations ran at different times. Run order and background activity could affect the size of the prefill gain.',
-    'results/gdn_raw.csv, results/summary.json, output/plots/affinity_experiment.pdf');
-  const rows = [
-    ['Decode · 1,024 history', rate(d), rate(dOS), signed(d, dOS)],
-    ['Prefill · 4,096 prompt', rate(p), rate(pOS), signed(p, pOS)],
-  ];
-  const x = [64, 410, 687, 981];
-  const w = [331, 257, 270, 230];
-  ['Workload', 'P cores pinned', 'OS placement', 'Pinning change'].forEach((value, i) => label(s, value, x[i], 200, w[i]));
-  for (const [index, row] of rows.entries()) {
-    row.forEach((value, i) => text(s, value, x[i], 254 + 93 * index, w[i], 65,
-      { size: i === 0 ? 26 : 31, bold: true, color: i === 3 ? teal : ink }));
-  }
-  text(s, 'The decode change falls within repeat variation. Prefill shows a larger gain.', 65, 503, 1130, 60,
-    { size: 29, color: teal, bold: true });
-  foot(s, 'Six workers per configuration. Rates are tokens/s, mean ± sample SD, three repeats.');
+  const counts = [1, 4, 12, 36];
+  const a = rotation(1, 1).latency_us.mean;
+  const b = rotation(1, 36).latency_us.mean;
+  const c = rotation(cores, 1).latency_us.mean;
+  const d = rotation(cores, 36).latency_us.mean;
+  const s = slide('Decode across independent states', 65,
+    'The added experiment cycles through one, four, twelve and thirty-six independent states using one reusable graph. Each step performs the same arithmetic on the same input shapes. Thirty-six states represent seventy-two mebibytes of recurrent memory, compared with twenty-four mebibytes of shared L3. On one core latency changes from ' + fmt(a) + ' to ' + fmt(b) + ' microseconds per layer step. On six it changes from ' + fmt(c) + ' to ' + fmt(d) + '. One round over thirty-six states takes ' + (36 * b / 1000).toFixed(1) + ' milliseconds on one core and ' + (36 * d / 1000).toFixed(1) + ' on six. The footprint corresponds to the model’s thirty-six recurrent layers. The benchmark isolates the recurrent operation and its state carry. A complete model also has projections, attention, and expert layers.',
+    'results/working_sets.csv, results/summary.json, output/plots/working_sets.pdf');
+  chart(s, 'line', counts.map(String), [1, cores].map(n => ({
+    name: n === 1 ? '1 P core' : n + ' P cores',
+    values: counts.map(count => rotation(n, count).latency_us.mean),
+  })), { xTitle: 'Independent states, 2 MiB each', yTitle: 'Microseconds per layer step' });
+  stat(s, '72 MiB', '36 recurrent states\n24 MiB shared L3', 860, 168);
+  label(s, '36-state round time', 865, 388);
+  text(s, (36 * b / 1000).toFixed(1) + ' ms · 1 P core\n' +
+    (36 * d / 1000).toFixed(1) + ' ms · 6 P cores', 865, 433, 338, 104, { size: 28, bold: true, color: rust });
+  foot(s, 'Three repeats per point. Round times cover the recurrence and state carry only.');
 }
 
 {
-  const s = slide('Shared PARAM Rudra CPU reference', 45,
-    'The course reference used Llama 3.2 1B Instruct Q4 K M on a Xeon Gold CPU with four threads. For a five hundred twelve token prompt followed by one hundred twenty-eight generated tokens, the combined rate was ' + rudra.avg_ts.toFixed(2) + ' tokens per second, with a sample standard deviation of ' + rudra.stddev_ts.toFixed(2) + ' across three repeats. Peak RSS is unavailable because the cluster returned zero and the compute node lacked GNU time. The reference is full-model inference. Our Option 5 operator measurements show a fixed two mebibyte recurrent state and stronger thread scaling in prefill than in single-token decode. Raw results, build notes, and scripts are in the repository.',
-    'results/param-rudra/186881/reference.json, hardware.txt and slurm-accounting.txt in the same directory.');
+  const limit = study.ceilings.at(-1);
+  const s = slide('Cache and compute ceilings', 60,
+    'The source-level count gives about ' + (study.flops_per_step / 1e6).toFixed(2) + ' million floating-point operations per step, excluding the exponentials. Dividing by the logical byte count gives ' + study.logical_flops_per_byte.toFixed(3) + ' FLOP per byte. We measured effective bandwidth at several working-set sizes and used the one and sixteen mebibyte copy points as cache-sized references. STREAM supplies the large-array DRAM reference. An AVX2 FMA loop gives the measured compute ceiling. We plot one-state and thirty-six-state decode at the same logical intensity. Cache capacity alone cannot tell us how many requests reached each level, and the byte model omits some passes over the state. The roofline puts the measurements on a common scale and shows the gap to those reference rates.',
+    'results/ceilings.csv, results/stream_raw.csv, results/working_sets.csv, output/plots/cache_roofline.pdf');
+  s.images.add({
+    blob: await fs.readFile(path.join(root, 'output/plots/cache_roofline.png')),
+    contentType: 'image/png', fit: 'contain',
+    position: { left: 63, top: 158, width: 805, height: 398 },
+  });
+  label(s, 'Six-core reference rates', 888, 170);
+  text(s, limit.l2_1mib.toFixed(0) + ' GB/s · 1 MiB copy\n' +
+    limit.l3_16mib.toFixed(0) + ' GB/s · 16 MiB copy\n' +
+    limit.dram_stream.toFixed(0) + ' GB/s · STREAM Triad\n' +
+    limit.compute_gflops.toFixed(0) + ' GFLOP/s · FMA', 883, 220, 342, 162, { size: 22 });
+  stat(s, study.logical_flops_per_byte.toFixed(3), 'Logical FLOP per byte', 886, 400, 325, teal, 48);
+  foot(s, 'Cache-sized copy rates are empirical references. Arithmetic intensity uses logical traffic.');
+}
+
+{
+  const s = slide('Shared PARAM Rudra CPU reference', 40,
+    'The course reference used Llama 3.2 1B Instruct Q4 K M on four Xeon Gold CPU threads. The rerun delivered ' + rudra.avg_ts.toFixed(2) + ' combined tokens per second for a five hundred twelve token prompt and one hundred twenty-eight decode tokens. The benchmark process reached ' + (rudraMemory.peak_rss_bytes / 2 ** 30).toFixed(2) + ' gibibytes of peak resident memory. The full-model reference has a different scope from our layer study. The laptop results show stable state size and stronger scaling in prefill than in single-token decode.',
+    'results/param-rudra/186891/reference.json, peak-rss.json, hardware.txt and slurm-accounting.txt.');
   stat(s, rudra.avg_ts.toFixed(2) + ' ± ' + rudra.stddev_ts.toFixed(2),
     'Combined tokens/s, mean ± sample SD', 64, 152, 790, teal, 81);
   label(s, 'Shared workload', 69, 350, 490);
   text(s, 'Llama 3.2 1B Instruct · Q4_K_M\n512 prompt + 128 generated tokens\n3 repeats · 4 CPU threads', 65, 391, 545, 152, { size: 27 });
   label(s, 'Compute node', 654, 350, 440);
-  text(s, 'Intel Xeon Gold 6240R\nrdcn20 · Slurm job 186881\nPeak RSS unavailable', 650, 391, 540, 152, { size: 27 });
+  text(s, 'Intel Xeon Gold 6240R\nrdcn20 · Slurm job 186891\nPeak RSS ' +
+    (rudraMemory.peak_rss_bytes / 2 ** 30).toFixed(2) + ' GiB', 650, 391, 540, 152, { size: 27 });
   foot(s, 'Reproduction files at github.com/secureswim/cpu-inference-gdn-mamba3');
 }
 
@@ -324,8 +350,8 @@ await finalizePresentation({
   integrityValidatorPath: path.join(skill, 'container_tools/inspect_presentation_package_integrity.py'),
   layoutValidatorPath: path.join(skill, 'container_tools/inspect_presentation_layout_geometry.py'),
   layoutArgs: ['--expected-slide-size-emu', '12192000,6858000', '--validate-heading-fit'],
-  explicitTotalSlideCount: 12,
-  requiredNativeChartOwnerSlides: [5, 6, 7, 8, 9, 10],
+  explicitTotalSlideCount: 13,
+  requiredNativeChartOwnerSlides: [5, 6, 7, 8, 9, 10, 11],
   materializeLiteralChartWorkbooks: true,
   fontPolicy: { basis: 'design', families: [font, math] },
   verifyArtifactToolImport: true,

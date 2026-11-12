@@ -14,12 +14,19 @@ cmake -S . -B build/cmake -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_C_COMPILER
 if ($LASTEXITCODE) { throw 'Configuration failed' }
 cmake --build build/cmake -j 6
 if ($LASTEXITCODE) { throw 'Compilation failed' }
-& build/cmake/gdn.exe check | Set-Content results/gdn_correctness.json
-if ($LASTEXITCODE) { throw 'GDN correctness failed' }
-& $py -m pip freeze | Set-Content results/python-lock.txt
-if ($AllowBattery) { & $py scripts/run_benchmarks.py --allow-battery }
-else { & $py scripts/run_benchmarks.py }
+$stage = Join-Path 'build' ("sweep-" + [guid]::NewGuid().ToString('N'))
+if ($AllowBattery) {
+    & $py scripts/run_benchmarks.py --allow-battery --output $stage
+    if ($LASTEXITCODE) { throw 'Provisional benchmark sweep failed' }
+    Write-Output "Provisional raw measurements saved to $stage."
+    return
+}
+& $py scripts/run_benchmarks.py --clean-rerun --output $stage
 if ($LASTEXITCODE) { throw 'Benchmark sweep failed' }
+Get-ChildItem -LiteralPath $stage -File | ForEach-Object {
+    Copy-Item -LiteralPath $_.FullName -Destination results -Force
+}
+& $py -m pip freeze | Set-Content results/python-lock.txt
 & $py scripts/analyze.py
 if ($LASTEXITCODE) { throw 'Analysis failed' }
 & $py scripts/make_report.py

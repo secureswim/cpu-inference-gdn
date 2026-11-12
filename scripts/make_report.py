@@ -47,73 +47,103 @@ def make_report():
     env = json.loads((ROOT / "results/environment.json").read_text())
     gcheck = json.loads((ROOT / "results/gdn_correctness.json").read_text(encoding="utf-8-sig"))
     rudra, = json.loads((ROOT / "results/param-rudra/186881/reference.json").read_text())
+    rudra_rerun = ROOT / "results/param-rudra/186891"
+    rerun, = json.loads((rudra_rerun / "reference.json").read_text())
+    rudra_rss = json.loads((rudra_rerun / "peak-rss.json").read_text())["peak_rss_bytes"]
     threads = data["max_threads"]
+    study = data["working_set_study"]
+    profile_path = ROOT / "results/profiles/sampled.json"
+    sampled = json.loads(profile_path.read_text()) if profile_path.exists() else None
+
     def gd(mode, length, t=threads, pin=1):
         return next(r for r in data["gdn"] if (r["mode"], r["length"], r["threads"], r["pinned"]) == (mode, str(length), str(t), str(pin)))
+
+    def rotating(n, count):
+        return next(r for r in study["measurements"] if r["threads"] == n and r["states"] == count)
+
     def measurement(row):
         return f"{row['mean']:,.0f} +/- {row['sd']:,.0f}"
-    bw = next(r["mean"] for r in data["stream_triad"] if r["threads"] == str(threads)) / 1000
+
+    latency1 = 1e6 / gd("decode", 1024, 1)["mean"]
+    latency6 = 1e6 / gd("decode", 1024)["mean"]
+    six = study["ceilings"][-1]
+    bw = six["dram_stream"]
     predicted = bw * 1e9 / data["gdn_logical_bytes"]
     pinned = gd("decode", 1024)["mean"]
     unpinned = gd("decode", 1024, pin=0)["mean"]
-    provisional = env["timings_provisional"]
+    max_history = max(float(row["max_abs_from_1024"]) for row in study["history"])
+    max_changed = max(int(row["changed_elements"]) for row in study["history"])
+    history_note = ("The resulting snapshots matched bit for bit at both worker counts." if max_changed == 0
+                    else f"The largest elementwise difference was {max_history:.2e}, with up to {max_changed:,} elements differing.")
     story = []
     add = story.append
-    add(paragraph("Recurrent inference on a laptop CPU", "ReportTitle"))
-    add(paragraph("Option 5 - Gated DeltaNet operator study<br/>Siddharth Kumar", "ReportHeading"))
-    if provisional:
-        add(paragraph("<b>Provisional timing run.</b> The laptop ran on battery. Repeat the sweep on AC power in performance mode before final assessment."))
-    add(paragraph("<b>Research question.</b> What does one Gated DeltaNet decode step cost, and how does its recurrent state compare with attention's KV cache? We study batch-one recurrence kernels with synthetic inputs. Operator tokens/s describes one layer, so it cannot establish full-model throughput or language quality."))
+    add(paragraph("Gated DeltaNet decode on a laptop CPU", "ReportTitle"))
+    add(paragraph("Project 1, Option 5, Group 4<br/>Siddharth Kumar (2023522) and Vaishnavi Srivastava (2023574)", "ReportHeading"))
+    add(paragraph(f"<b>One decode step.</b> At 1,024 tokens of starting history, one Gated DeltaNet layer took <b>{latency1:.0f} µs per token on one P core</b> and <b>{latency6:.0f} µs on {threads} P cores</b>, calculated as the reciprocal of mean throughput. The scope is a batch-one FP32 operator with synthetic Qwen3-Next shapes, including graph execution and the driver state carry."))
+    add(paragraph("Hardware and setup", "ReportHeading"))
     add(table([["Hardware / build", "Recorded configuration"],
-               ["CPU and memory", "Intel Core Ultra 9 185H. 6 P cores / 12 P logical threads and 10 lower-efficiency cores. 31.44 GiB usable RAM."],
-               ["Caches and SIMD", "P-core L1D 48 KiB, L1I 64 KiB, L2 2 MiB per core. Shared L3 24 MiB. AVX2/FMA available, AVX-512 unavailable."],
-               ["Placement", "One logical thread per P core. Logical processors 0, 10, 12, 14, 16, 18. Scaling covers 1 through 6 workers."],
-               ["Software", "Windows, MinGW GCC 13.2, Release -O3. CPU-only ggml, explicit AVX2/FMA, OpenMP. Exact commits and environment are in results/environment.json."]], [107, 403]))
-    add(paragraph("Setup and correctness", "ReportHeading"))
-    add(paragraph(f"We call the upstream fused GATED_DELTA_NET operator [1] with 16 query/key heads, 32 value heads, and head size 128. Inputs and state use FP32, as this option has no model weights to quantize. Perplexity is inapplicable to synthetic tensors. The independent FP64 calculation checked every state and output over 1,000 changing-input steps. Maximum absolute errors were {gcheck['max_state_abs']:.2e} for state and {gcheck['max_output_abs']:.2e} for output. A 17-token graph matched repeated single-token calls exactly."))
-    add(paragraph("Each configuration has one warmup and three timed repeats of at least 0.35 s. Prefill processes 512, 4,096, or 32,768 tokens in chunks of 128. The same fixed seeded input block repeats across chunks. Decode begins from a state advanced through 1,024, 8,192, or 32,768 tokens. State carry between ggml calls belongs to the timed region. Error bars show sample standard deviation across three repeats."))
+               ["CPU and memory", "Intel Core Ultra 9 185H, 6 P-cores, 8 E-cores, 2 low-power E-cores. 31.44 GiB usable RAM."],
+               ["Caches and SIMD", "P-core L1D 48 KiB, L1I 64 KiB, L2 2 MiB per core. Shared L3 24 MiB. AVX2/FMA available."],
+               ["Placement", "Windows affinity mask uses one logical processor per P-core, with 1 to 6 workers."],
+               ["Build", "GCC 13.2, Release -O3, CPU-only ggml. Upstream revision 8bb3cf0d."]], [105, 405]))
+    add(paragraph("Correctness and measurement protocol", "ReportHeading"))
+    add(paragraph(f"The upstream fused operator uses 16 Q/K heads, 32 value heads and a head width of 128. An independent FP64 reference checked 1,000 changing-input steps. Maximum absolute errors were {gcheck['max_state_abs']:.2e} for state and {gcheck['max_output_abs']:.2e} for output. A 17-token graph matched 17 single-token calls exactly. Synthetic operator inputs use FP32."))
+    app_note = ("Browser and IDE windows were closed, with no Chrome or Edge processes at startup. The chat remained open."
+                if env.get("background_apps_closed") and not env.get("background_browser_ide_processes_at_start")
+                else env.get("background_note", "Desktop app closure was not verified."))
+    add(paragraph(f"The interleaved sweep ran on AC power in Best Performance mode. {escape(app_note)} Each configuration had a warmup and three repeats of at least 0.35 s. Prefill starts from zero and uses 128-token chunks. Decode advances the state through the starting history before timing. Error bars show sample SD."))
     add(figure("length_sweeps", height=155))
+    add(paragraph(f"<b>History control.</b> All lengths end at the same phase of a repeated 128-token block. {history_note} These runs test fixed work per decode step. The earlier six-worker slowdown at 32k did not recur in the clean rerun."))
+    add(paragraph("The synthetic update uses normalized keys, beta = 0.3 and a scalar decay multiplier exp(-0.05) = 0.951. The decay shrinks differences inherited from earlier states, while the key-directed correction further damps the component along the key. That explains why the repeated block produces nearly the same state at all three history lengths."))
     add(PageBreak())
 
-    add(paragraph("Measured throughput and operator costs", "ReportTitle"))
-    rows = [["Mode", "Length", "1 P core, tokens/s", f"{threads} P cores, tokens/s"]]
+    add(paragraph("Thread scaling and operator costs", "ReportTitle"))
+    sweep = [["Mode", "Length", "1 P core, tokens/s", f"{threads} P cores, tokens/s"]]
     for mode, lengths in (("decode", (1024, 8192, 32768)), ("prefill", (512, 4096, 32768))):
         for length in lengths:
-            rows.append([mode, f"{length:,}", measurement(gd(mode, length, 1)), measurement(gd(mode, length))])
-    add(table(rows, [62, 66, 191, 191]))
-    add(paragraph(f"The {threads}-worker decode speedup at 1k context is {gd('decode',1024)['mean']/gd('decode',1024,1)['mean']:.2f}x. The corresponding 4k prefill speedup is {gd('prefill',4096)['mean']/gd('prefill',4096,1)['mean']:.2f}x. Chunked prefill amortizes graph dispatch and initial state copying over 128 tokens. Single-token decode pays those costs on each call. One-core decode varies little across history lengths. The six-worker 32k decline warrants a controlled rerun because recurrent storage and arithmetic have no context axis. These measurements cannot isolate scheduling, power changes, or thermal effects."))
-    add(figure("thread_scaling", height=171))
-    add(paragraph("Scoped profiling inside the upstream operator", "ReportHeading"))
+            sweep.append([mode, f"{length:,}", measurement(gd(mode, length, 1)), measurement(gd(mode, length))])
+    add(table(sweep, [62, 66, 191, 191]))
+    add(paragraph(f"Six-worker speedup was {pinned/gd('decode',1024,1)['mean']:.2f}x for decode at 1k and {gd('prefill',4096)['mean']/gd('prefill',4096,1)['mean']:.2f}x for prefill at 4k. Prefill shares graph dispatch and initial state copying across a 128-token chunk. Single-token decode pays those costs on each graph call."))
+    add(figure("thread_scaling", height=150))
+    add(paragraph("Profiling the two state copies", "ReportHeading"))
     descriptions = []
     for mode, label in (("profile", "decode"), ("profile_prefill", "prefill")):
         ordered = sorted(data["phase_percent"][mode].items(), key=lambda x: x[1], reverse=True)[:3]
         descriptions.append(label.capitalize() + " spends its largest measured shares on " + ", ".join(f"{name.lower()} ({value:.1f}%)" for name, value in ordered) + ".")
     add(paragraph(" ".join(descriptions)))
-    add(figure("operator_breakdown", height=162))
-    add(paragraph("The plot uses timers inserted into the pinned ggml implementation and a single worker. Shares normalize to the five scoped phases. Graph scheduling, the driver's output-to-input state copy, and profiling overhead sit outside those shares. Throughput comes from uninstrumented runs. Windows blocked sampled profiling with policy error 0xc5585011. The repository includes a separate Linux perf script.", "SmallNote"))
+    add(figure("operator_breakdown", height=144))
+    c1 = rotating(1, 1)["carry_us"]["mean"]
+    c6 = rotating(threads, 1)["carry_us"]["mean"]
+    serial_share = c1 / rotating(1, 1)["diagnostic_us"]["mean"]
+    add(paragraph(f"The ggml initial copy runs inside worker-owned head ranges. The separate driver copy executes serially after graph completion. With one rotating state, it averaged {c1:.0f} µs on one worker and {c6:.0f} µs on six. It was {serial_share:.0%} of the one-worker diagnostic, implying an idealized Amdahl ceiling of {1/serial_share:.2f}x if this were the only serial cost. The scoped operator percentages exclude the driver copy and graph scheduling."))
+    if sampled:
+        add(paragraph(escape(sampled["report_note"]), "SmallNote"))
+    else:
+        add(paragraph("Scoped timing supplies the phase breakdown. Windows blocked WPR sampling with policy error 0xc5585011.", "SmallNote"))
     add(PageBreak())
 
-    add(paragraph("Bandwidth prediction and an affinity experiment", "ReportTitle"))
-    add(paragraph(f"The official STREAM 5.10 source [2] uses three arrays of 20 million doubles, totaling 480 MB and exceeding the 24 MiB last-level cache. Each of three independent executions has 20 passes. We average their best Triad rates. At {threads} P cores the result is {bw:.2f} GB/s. These are local measurements, without certification by the STREAM maintainers."))
-    add(paragraph(f"Our logical traffic lower bound is {data['gdn_logical_bytes']/2**20:.3f} MiB per decoded token. It counts a state read/write, the driver's state carry copy, Q/K/V, gates, and output. STREAM bandwidth divided by this traffic predicts {predicted:,.0f} tokens/s, versus {pinned:,.0f} measured at 1k context ({pinned/predicted:.2f}x the prediction). This DRAM estimate assumes the counted bytes reach memory on every step. The 2 MiB state fits in cache, so that assumption can fail. Conversely, upstream GDN revisits state for decay, delta, update, and readout, creating additional cache traffic. A single DRAM-bandwidth estimate cannot model these cache levels or thread synchronization."))
-    add(Table([[figure("roofline", 250, 150), figure("affinity_experiment", 250, 150)]], colWidths=[255, 255]))
-    add(paragraph(f"<b>Own experiment.</b> We hold workload and worker count constant and compare P-core affinity with unrestricted OS placement. At 1k decode, the rates are {pinned:,.0f} and {unpinned:,.0f} tokens/s, a {(pinned/unpinned-1)*100:+.1f}% difference. This is smaller than the decode variation across repeats, so the runs do not resolve a pinning advantage for decode. Prefill's local difference is {(gd('prefill',4096)['mean']/gd('prefill',4096,pin=0)['mean']-1)*100:+.1f}%. Run order and background activity remain potential confounders."))
-    add(paragraph("State memory and measurement limits", "ReportHeading"))
-    add(figure("state_vs_kv", height=168))
-    add(paragraph(f"GDN stores 32 x 128 x 128 FP32 values, exactly 2 MiB per layer. An attention layer with 16 KV heads of size 128 stores 2 x T x 16 x 128 x 4 bytes, reaching 512 MiB at 32k tokens. The plot is an analytical storage comparison. It excludes model weights, attention compute buffers, and GDN input/output buffers. Peak GDN process working set was {data['max_gdn_rss']/2**20:.1f} MiB and minimum observed system free RAM was {data['min_free_ram']/2**30:.2f} GiB. Peak working set includes process overhead. Memory checks kept every run below the 4.5 GB budget, but working-set sampling does not prove the absence of all hard page faults."))
-    add(paragraph("The charger was connected and the effective Windows power overlay was Best Performance. The base power scheme reports Balanced. The separate power-confirmation record verifies the overlay. Desktop applications remained open. Raw files retain timestamps, free memory and per-configuration peaks.", "SmallNote"))
+    add(paragraph("Working-set size and bandwidth ceilings", "ReportTitle"))
+    add(paragraph("Each test uses one reusable graph and cycles through 1, 4, 12 or 36 independent recurrent states. It keeps the per-step arithmetic, input tensors and output workspace fixed. The 36-state case models 72 MiB of recurrent state, above the 24 MiB shared L3. It represents the state footprint of Qwen3-Next's 36 GDN layers, while the graph still isolates the recurrence."))
+    add(figure("working_sets", height=170))
+    a, b = rotating(1, 1)["latency_us"]["mean"], rotating(1, 36)["latency_us"]["mean"]
+    c, d = rotating(threads, 1)["latency_us"]["mean"], rotating(threads, 36)["latency_us"]["mean"]
+    add(paragraph(f"One to 36 states changed latency from <b>{a:.0f} to {b:.0f} µs</b> on one P core and from <b>{c:.0f} to {d:.0f} µs</b> on six. Latency showed no consistent increase with footprint. The 36-state round took {36*b/1000:.1f} and {36*d/1000:.1f} ms, respectively, including all recurrent updates and their driver copies. Full-model inference also includes projections, attention and MoE computation."))
+    add(paragraph("Measured cache-size, DRAM and compute references", "ReportHeading"))
+    add(figure("cache_roofline", height=178))
+    add(paragraph(f"The scalar-gated recurrence performs about {study['flops_per_step']/1e6:.2f} MFLOP per step, counting FMA as two operations and excluding exponentials. The logical lower bound is {data['gdn_logical_bytes']/2**20:.2f} MiB per step, or {study['logical_flops_per_byte']:.3f} FLOP/byte. It includes the input/output state copy, the driver copy and small tensors. Additional passes raise traffic, and cache residency changes how many bytes reach DRAM. Both operating points use this same logical denominator."))
+    add(paragraph(f"At six cores, the 1 MiB and 16 MiB copy footprints sustained {six['l2_1mib']:.1f} and {six['l3_16mib']:.1f} GB/s, STREAM Triad measured {bw:.2f} GB/s and the FMA loop measured {six['compute_gflops']:.0f} GFLOP/s. Cache-sized copy results are empirical reference rates. The plot does not identify which cache served each request."))
     add(PageBreak())
 
-    add(paragraph("Conclusions and shared CPU reference", "ReportTitle"))
-    add(paragraph("What the operator measurements show", "ReportHeading"))
-    add(paragraph("Gated DeltaNet keeps a fixed 2 MiB recurrent state per layer in the tested shape. The analytical FP32 attention cache reaches 512 MiB per layer at 32k tokens with 16 KV heads. Each single-token Gated DeltaNet call still reads and updates the recurrent state. Chunked prefill distributes fixed call costs over more tokens, which helps explain its stronger thread scaling on this machine."))
-    add(paragraph("The STREAM calculation gives a useful reference for traffic that reaches DRAM. The measured operator also revisits state in cache and pays graph and thread overhead. The affinity comparison holds the worker count and input sizes fixed. Its small decode difference sits within the observed run-to-run spread."))
-    add(paragraph("Reproducing the measurements", "ReportHeading"))
-    add(paragraph("Build the pinned ggml backend and run the driver correctness check before collecting throughput. The sweep records three repeats per configuration for prefill, decode, and STREAM, along with process memory and the effective CPU placement. Report the instrumented phase timings separately from the throughput runs because those timers add work inside the operator. The repository provides raw CSV files, plotting code, the compiler settings, and the command used to select physical performance cores."))
-    add(paragraph("Shared PARAM Rudra reference", "ReportHeading"))
-    add(paragraph(f"Job 186881 on rdcn20 (Xeon Gold 6240R) ran Llama 3.2 1B Instruct Q4_K_M on {rudra['n_threads']} CPU threads. The combined {rudra['n_prompt']}-token prefill and {rudra['n_gen']}-token decode averaged <b>{rudra['avg_ts']:.2f} +/- {rudra['stddev_ts']:.2f} tokens/s</b> (mean +/- SD, three repeats). Peak RSS was unavailable because Slurm returned zero. Evidence is in results/param-rudra/186881/.", "SmallNote"))
-    add(paragraph("References", "ReportHeading"))
-    add(paragraph("[1] ggml-org/llama.cpp, commit 8bb3cf0d, ggml/src/ggml-cpu/ops.cpp. github.com/ggml-org/llama.cpp<br/>[2] McCalpin, STREAM 5.10. cs.virginia.edu/stream/", "SmallNote"))
+    add(paragraph("Memory, shared reference and conclusions", "ReportTitle"))
+    add(paragraph("Qwen3-Next state and F16 attention KV", "ReportHeading"))
+    add(figure("state_vs_kv", height=165))
+    add(paragraph(f"The recurrent state is 32 x 128 x 128 FP32 values, or <b>2 MiB per layer</b>. Each Qwen3-Next full-attention layer has two KV heads of width 256. F16 keys and values cost 2 KiB per token, or <b>64 MiB per layer at 32,768 tokens</b>. The storage model excludes weights, convolution state and compute buffers. The laptop GDN sweep's peak process working set was {data['max_gdn_rss']/2**20:.1f} MiB, with at least {data['min_free_ram']/2**30:.2f} GiB of free RAM."))
+    add(paragraph("Assignment bandwidth comparison", "ReportHeading"))
+    add(Table([[figure("roofline", 260, 131), paragraph(f"At six cores, STREAM divided by logical bytes per step estimates {predicted:,.0f} tokens/s. The 1k-history decode measurement is {pinned:,.0f} tokens/s. This comparison assumes the counted traffic reaches DRAM. The cache-sized copy tests and rotating states expose the role of footprint. Timing also includes multiple state passes and graph coordination. Placement changed mean decode throughput by {(pinned/unpinned-1)*100:+.1f}% in the secondary affinity experiment.", "SmallNote")]], colWidths=[265, 245]))
+    add(paragraph("Shared PARAM Rudra CPU reference", "ReportHeading"))
+    add(paragraph(f"Llama 3.2 1B Instruct Q4_K_M ran on four Xeon Gold 6240R threads with a 512-token prompt and 128-token decode. Job 186881 averaged {rudra['avg_ts']:.2f} +/- {rudra['stddev_ts']:.2f} combined tokens/s. Rerun 186891 averaged <b>{rerun['avg_ts']:.2f} +/- {rerun['stddev_ts']:.2f} tokens/s</b> over three repeats and measured <b>{rudra_rss/2**30:.2f} GiB peak RSS</b> via Linux child process accounting.", "SmallNote"))
+    add(paragraph("Reproduction and sources", "ReportHeading"))
+    add(paragraph("The repository contains pinned source, raw samples, correctness checks, clean-run scripts and plots. Primary sources are ggml-org/llama.cpp at 8bb3cf0d, Qwen/Qwen3-Next-80B-A3B-Instruct config.json, McCalpin STREAM 5.10 and Intel's Core Ultra 9 185H specifications.", "SmallNote"))
     path = OUT / "pdf/Project_1_Report.pdf"
     path.parent.mkdir(parents=True, exist_ok=True)
     def footer(canvas, doc):
@@ -122,7 +152,8 @@ def make_report():
         canvas.drawString(42, 22, "CPU inference project | Gated DeltaNet")
         canvas.drawRightString(553, 22, str(doc.page))
     doc = SimpleDocTemplate(str(path), pagesize=A4, leftMargin=42, rightMargin=42,
-                            topMargin=34, bottomMargin=43, title="CPU inference project", author="Siddharth Kumar")
+                            topMargin=34, bottomMargin=43, title="Gated DeltaNet decode on a laptop CPU",
+                            author="Siddharth Kumar and Vaishnavi Srivastava")
     doc.build(story, onFirstPage=footer, onLaterPages=footer)
     pages = len(PdfReader(path).pages)
     if pages != 4:

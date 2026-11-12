@@ -19,6 +19,8 @@ plt.rcParams.update({"font.family": "DejaVu Sans", "font.size": 10,
                      "axes.spines.top": False, "axes.spines.right": False,
                      "axes.titleweight": "bold", "figure.dpi": 160})
 COLORS = ["#176B87", "#E27636", "#5C469C", "#2D936C", "#A63A50"]
+MIB = 2**20
+GDN_FLOPS = 32 * 128 * (7 * 128 + 1)  # FMA counts as two, excludes expf
 
 
 def read(name):
@@ -41,6 +43,119 @@ def save(fig, name):
     fig.savefig(PLOTS / f"{name}.png", bbox_inches="tight")
     fig.savefig(PLOTS / f"{name}.pdf", bbox_inches="tight")
     plt.close(fig)
+
+
+def working_set_analysis(max_threads, logical_bytes, stream_summary):
+    rotation = read("working_sets.csv")
+    ceilings = read("ceilings.csv")
+    endpoints = (1, max_threads)
+    counts = (1, 4, 12, 36)
+    expected = {(str(n), str(count), str(diag))
+                for n in endpoints for count in counts for diag in (0, 1)}
+    groups = group(rotation, ("threads", "states", "diagnostic"), "seconds")
+    if set(groups) != expected or any(row["n"] != 3 for row in groups.values()):
+        raise ValueError("Incomplete rotating-state data")
+    for row in rotation:
+        steps, states = int(row["steps"]), int(row["states"])
+        elapsed, graph, carry = (float(row[key]) for key in ("seconds", "graph_seconds", "carry_seconds"))
+        if steps <= 0 or steps % states or elapsed < 0.5 or graph + carry > elapsed:
+            raise ValueError("Invalid rotating-state timing")
+        if not 0 < int(row["peak_rss_bytes"]) < 4.5e9:
+            raise ValueError("Invalid rotating-state peak RSS")
+        for field in ("seconds", "graph_seconds", "carry_seconds"):
+            row[field] = float(row[field]) * 1e6 / steps
+    latency = group(rotation, ("threads", "states", "diagnostic"), "seconds")
+    graph = group(rotation, ("threads", "states", "diagnostic"), "graph_seconds")
+    carry = group(rotation, ("threads", "states", "diagnostic"), "carry_seconds")
+    rates = group(ceilings, ("mode", "threads", "total_buffer_bytes"), "giga_per_second")
+    if any(row["n"] != 3 or row["low"] <= 0 for row in rates.values()):
+        raise ValueError("Incomplete bandwidth or compute repeats")
+    bandwidth = [
+        {"threads": int(n), "bytes": int(size), **value}
+        for (mode, n, size), value in sorted(rates.items(), key=lambda item: int(item[0][2]))
+        if mode == "copy"
+    ]
+    history = read("history_states.csv")
+    if {(int(r["threads"]), int(r["history"])) for r in history} != {
+        (n, length) for n in endpoints for length in (1024, 8192, 32768)
+    }:
+        raise ValueError("Incomplete history snapshots")
+
+    rows = []
+    for n in endpoints:
+        for count in counts:
+            fast, timed = (str(n), str(count), "0"), (str(n), str(count), "1")
+            rows.append({"threads": n, "states": count, "latency_us": latency[fast],
+                         "diagnostic_us": latency[timed], "graph_us": graph[timed],
+                         "carry_us": carry[timed]})
+
+    fig, (ax, parts) = plt.subplots(1, 2, figsize=(9.5, 3.25))
+    for index, n in enumerate(endpoints):
+        subset = [r for r in rows if r["threads"] == n]
+        ax.errorbar(counts, [r["latency_us"]["mean"] for r in subset],
+                    yerr=[r["latency_us"]["sd"] for r in subset], marker="o", capsize=3,
+                    label="1 P core" if n == 1 else f"{n} P cores", color=COLORS[index])
+    ax.set(xscale="log", xticks=counts, xlabel="Independent recurrent states",
+           ylabel="Mean µs per layer step", title="Uninstrumented decode")
+    ax.set_xticklabels(counts)
+    ax.legend(frameon=False)
+    subset = [r for r in rows if r["states"] in (1, 36)]
+    positions = np.arange(len(subset))
+    graph_us = [r["graph_us"]["mean"] for r in subset]
+    parts.bar(positions, graph_us, color=COLORS[0], label="Graph")
+    parts.bar(positions, [r["carry_us"]["mean"] for r in subset],
+              bottom=graph_us, color=COLORS[1], label="Serial driver carry")
+    labels = [f'{r["threads"]}P\n{r["states"]} {"state" if r["states"] == 1 else "states"}' for r in subset]
+    parts.set(xticks=positions, xticklabels=labels,
+              ylabel="Mean µs per layer step", title="Separate diagnostic timings",
+              ylim=(0, max(r["graph_us"]["mean"] + r["carry_us"]["mean"] for r in subset) * 1.25))
+    parts.legend(frameon=False, fontsize=8)
+    save(fig, "working_sets")
+
+    fig, ax = plt.subplots(figsize=(6.6, 3.3))
+    for index, n in enumerate(endpoints):
+        subset = [r for r in bandwidth if r["threads"] == n]
+        ax.errorbar([r["bytes"]/MIB for r in subset], [r["mean"] for r in subset],
+                    yerr=[r["sd"] for r in subset], marker="o", capsize=2,
+                    label="1 P core" if n == 1 else f"{n} P cores", color=COLORS[index])
+    ax.axvline(24, color="#777777", linestyle="--", label="Shared L3 capacity")
+    ax.set(xscale="log", xlabel="Combined source + destination footprint (MiB)",
+           ylabel="Effective copy bandwidth (GB/s)")
+    ax.legend(frameon=False, fontsize=8)
+    save(fig, "cache_bandwidth")
+
+    limits = []
+    intensity = GDN_FLOPS / logical_bytes
+    fig, axes = plt.subplots(1, 2, figsize=(9.7, 3.6), sharey=True)
+    x = np.geomspace(0.04, 100, 200)
+    for ax, n in zip(axes, endpoints):
+        compute = rates[("fma", str(n), "0")]["mean"]
+        # Select fixed footprints before comparing the measured bandwidths.
+        copy_at = lambda mib: min(
+            (r for r in bandwidth if r["threads"] == n),
+            key=lambda r: abs(r["bytes"] - mib * MIB))["mean"]
+        limits.append({"threads": n, "l2_1mib": copy_at(1), "l3_16mib": copy_at(16),
+                       "dram_stream": stream_summary[(str(n),)]["mean"] / 1000,
+                       "dram_copy_192mib": copy_at(192), "compute_gflops": compute})
+        limits_n = limits[-1]
+        for index, (label, key) in enumerate((("1 MiB copy (L2-sized)", "l2_1mib"),
+                                               ("16 MiB copy (L3-sized)", "l3_16mib"),
+                                               ("DRAM STREAM Triad", "dram_stream"))):
+            ax.plot(x, np.minimum(x * limits_n[key], compute), label=label, color=COLORS[index])
+        ax.axhline(compute, color="#666666", linestyle=":", label="FP32 FMA ceiling")
+        for index, count in enumerate((1, 36)):
+            point = next(r for r in rows if r["threads"] == n and r["states"] == count)
+            performance = GDN_FLOPS / point["latency_us"]["mean"] / 1000
+            ax.scatter(intensity, performance, marker=("o", "x")[index], s=38,
+                       color=("#222222", "#A63A50")[index], zorder=3, label=f"{count} state(s)")
+        ax.set(xscale="log", yscale="log", xlabel="Logical FLOP/byte",
+               title="1 P core" if n == 1 else f"{n} P cores")
+    axes[0].set_ylabel("GFLOP/s")
+    axes[1].legend(frameon=False, fontsize=7, loc="lower right")
+    save(fig, "cache_roofline")
+    return {"measurements": rows, "ceilings": limits, "copy_bandwidth": bandwidth,
+            "flops_per_step": GDN_FLOPS, "logical_flops_per_byte": intensity,
+            "history": history}
 
 
 def analyze():
@@ -109,7 +224,7 @@ def analyze():
     fig, ax = plt.subplots(figsize=(6.2, 3))
     contexts = np.array([1024, 4096, 8192, 16384, 32768])
     ax.plot(contexts, np.repeat(32 * 128 * 128 * 4 / 2**20, len(contexts)), "o-", label="GDN state, FP32", color=COLORS[0])
-    ax.plot(contexts, 2 * contexts * 16 * 128 * 4 / 2**20, "s-", label="Attention KV, 16 KV heads, FP32", color=COLORS[1])
+    ax.plot(contexts, 2 * contexts * 2 * 256 * 2 / MIB, "s-", label="Qwen3-Next GQA KV, F16", color=COLORS[1])
     ax.set(xlabel="Context tokens", ylabel="Persistent memory per layer (MiB)", xscale="log", yscale="log", xticks=contexts)
     ax.set_xticklabels(["1k", "4k", "8k", "16k", "32k"])
     ax.legend(frameon=False)
@@ -131,6 +246,9 @@ def analyze():
                 "phase_percent": phase_data, "gdn_logical_bytes": logical_bytes,
                 "max_threads": max_thread, "max_gdn_rss": max(float(r["peak_rss_bytes"]) for r in gdn),
                 "min_free_ram": min(float(r["free_ram_bytes"]) for r in gdn)}
+    supplemental = [RESULTS / name for name in ("history_states.csv", "working_sets.csv", "ceilings.csv")]
+    if any(file.exists() for file in supplemental):
+        exported["working_set_study"] = working_set_analysis(max_thread, logical_bytes, stream_summary)
     (RESULTS / "summary.json").write_text(json.dumps(exported, indent=2))
     print(f"Summarized {len(gdn)} GDN rows and {len(stream)} STREAM rows.")
 

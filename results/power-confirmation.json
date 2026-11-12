@@ -2,5 +2,7 @@
   "performance_mode_user_confirmed": true,
   "effective_overlay_status": 0,
   "effective_overlay_guid": "ded574b5-45a0-4f42-8737-46345c09c238",
-  "rudra_deferred_by_user": true
+  "last_measurement_file_write_local": "2026-11-13T04:15:00.2155390+05:30",
+  "next_battery_switch_local": "2026-11-13T04:15:01.4644258+05:30",
+  "source": "Windows System log, Kernel-Power event 105, and final ceilings.csv write timestamp"
 }

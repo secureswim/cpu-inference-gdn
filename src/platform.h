@@ -34,10 +34,13 @@ inline std::vector<ULONG_PTR> performance_cores() {
     for (auto core : cores) if (core.first == best) result.push_back(core.second);
     return result;
 }
-inline void pin_performance_cores(bool enabled = true) {
+inline void pin_performance_cores(bool enabled = true, size_t count = 0) {
     if (!enabled) return;
     ULONG_PTR mask = 0;
-    for (auto core : performance_cores()) mask |= core;
+    auto cores = performance_cores();
+    if (count > cores.size()) throw std::runtime_error("Requested more performance cores than available");
+    if (count) cores.resize(count);
+    for (auto core : cores) mask |= core;
     if (!SetProcessAffinityMask(GetCurrentProcess(), mask))
         throw std::runtime_error("Cannot set performance-core affinity");
 }
@@ -56,7 +59,7 @@ inline uint64_t free_ram() {
 #else
 #include <sys/resource.h>
 #include <unistd.h>
-inline void pin_performance_cores(bool = true) {}
+inline void pin_performance_cores(bool = true, size_t = 0) {}
 inline uint64_t peak_rss() { rusage r{}; getrusage(RUSAGE_SELF, &r); return r.ru_maxrss * 1024ULL; }
 inline uint64_t free_ram() { return sysconf(_SC_AVPHYS_PAGES) * uint64_t(sysconf(_SC_PAGESIZE)); }
 #endif

@@ -7,56 +7,61 @@
   {
     "slide": 2,
     "title": "The Gated DeltaNet recurrence",
-    "seconds": 65
+    "seconds": 55
   },
   {
     "slide": 3,
     "title": "Laptop setup and timing protocol",
-    "seconds": 45
+    "seconds": 40
   },
   {
     "slide": 4,
     "title": "Correctness against an FP64 reference",
-    "seconds": 55
+    "seconds": 45
   },
   {
     "slide": 5,
     "title": "Decode speed vs. starting context",
-    "seconds": 50
+    "seconds": 45
   },
   {
     "slide": 6,
     "title": "Prefill speed vs. prompt length",
-    "seconds": 45
+    "seconds": 40
   },
   {
     "slide": 7,
     "title": "Thread scaling from one to six P cores",
-    "seconds": 45
+    "seconds": 40
   },
   {
     "slide": 8,
-    "title": "Time inside the fused operator",
-    "seconds": 60
+    "title": "Two state copies with different costs",
+    "seconds": 55
   },
   {
     "slide": 9,
     "title": "Predicted vs. measured decode speed",
-    "seconds": 65
+    "seconds": 45
   },
   {
     "slide": 10,
     "title": "State memory vs. attention KV cache",
-    "seconds": 50
+    "seconds": 45
   },
   {
     "slide": 11,
-    "title": "Thread placement experiment",
-    "seconds": 50
+    "title": "Decode across independent states",
+    "seconds": 65
   },
   {
     "slide": 12,
+    "title": "Cache and compute ceilings",
+    "seconds": 60
+  },
+  {
+    "slide": 13,
     "title": "Shared PARAM Rudra CPU reference",
-    "seconds": 45
+    "seconds": 40
   }
 ]

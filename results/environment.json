@@ -1,8 +1,12 @@
 {
-  "timestamp": "2026-11-09T00:34:54+0530",
+  "timestamp": "2026-11-13T04:10:15+0530",
   "python": "3.11.8 (tags/v3.11.8:db85d51, Feb  6 2024, 22:03:32) [MSC v.1937 64 bit (AMD64)]",
   "os": "Windows-10-10.0.26300-SP0",
   "power_scheme": "Power Scheme GUID: 381b4222-f694-41f0-9685-ff5bb260df2e  (Balanced)",
+  "effective_power_overlay": {
+    "status": 0,
+    "guid": "ded574b5-45a0-4f42-8737-46345c09c238"
+  },
   "p_core_logical_indices": [
     0,
     10,
@@ -12,8 +16,9 @@
     18
   ],
   "timings_provisional": false,
-  "background_apps_closed": false,
-  "background_note": "Desktop applications remained open during measurement. Background activity is a possible source of timing variation.",
+  "background_apps_closed": true,
+  "background_browser_ide_processes_at_start": [],
+  "background_note": "No visible browser or IDE windows. The Codex chat remained open.",
   "quantization": "FP32 synthetic operator inputs, model quantization and perplexity do not apply to Option 5",
   "gdn_chunk_tokens": 128,
   "warmup": "One graph call before each configuration",

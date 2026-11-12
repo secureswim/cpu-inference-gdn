@@ -1,0 +1,247 @@
+# To display the perf.data header info, please use --header/--header-only options.
+#
+#
+# Total Lost Samples: 0
+#
+# Samples: 24K of event 'cpu-clock:u'
+# Event count (approx.): 48713426464
+#
+# Overhead  Command  Shared Object        Symbol
+# ........  .......  ...................  ........................................................................................................................................................................................................................................................................................................................................................................................
+#
+    43.54%  gdn      libgomp.so.1.0.0     [.] 0x00000000000256c2
+            |
+            ---0x7b68f788c6c2
+               0x7b68f7889778
+               0x7b68f709caa3
+               0x7b68f7129c6b
+
+    19.41%  gdn      libc.so.6            [.] 0x0000000000188d47
+            |
+            ---0x7b68f7188d47
+               |
+               |--10.00%--ggml_compute_forward_gated_delta_net
+               |          ggml_compute_forward_gated_delta_net_one_chunk (inlined)
+               |          ggml_compute_forward_gated_delta_net_f32 (inlined)
+               |          ggml_compute_forward_gated_delta_net
+               |          ggml_compute_forward (inlined)
+               |          ggml_graph_compute_thread (inlined)
+               |          |
+               |          |--9.01%--0x7b68f788979e
+               |          |          0x7b68f709caa3
+               |          |          0x7b68f7129c6b
+               |          |
+               |           --0.99%--GOMP_parallel
+               |                     ggml_graph_compute
+               |                     Graph::compute() (inlined)
+               |                     Graph::advance() (inlined)
+               |                     main
+               |                     0x7b68f702a1c9
+               |                     __libc_start_main
+               |                     _start
+               |
+                --9.41%--main
+                          Graph::carry_state() (inlined)
+                          Graph::advance() (inlined)
+                          main
+                          0x7b68f702a1c9
+                          __libc_start_main
+                          _start
+
+    11.73%  gdn      libgomp.so.1.0.0     [.] 0x00000000000258a2
+            |
+            ---0x7b68f788c8a2
+               |
+               |--8.19%--ggml_barrier (inlined)
+               |          ggml_graph_compute_thread (inlined)
+               |          |
+               |          |--6.51%--0x7b68f788979e
+               |          |          0x7b68f709caa3
+               |          |          0x7b68f7129c6b
+               |          |
+               |           --1.68%--GOMP_parallel
+               |                     ggml_graph_compute
+               |                     Graph::compute() (inlined)
+               |                     Graph::advance() (inlined)
+               |                     main
+               |                     0x7b68f702a1c9
+               |                     __libc_start_main
+               |                     _start
+               |
+               |--1.66%--ggml_graph_compute._omp_fn.0
+               |          |
+               |           --1.36%--0x7b68f788979e
+               |                     0x7b68f709caa3
+               |                     0x7b68f7129c6b
+               |
+               |--0.93%--0x7b68f78897ab
+               |          0x7b68f709caa3
+               |          0x7b68f7129c6b
+               |
+                --0.77%--ggml_compute_forward_gated_delta_net
+                          ggml_compute_forward_gated_delta_net
+                          ggml_compute_forward (inlined)
+                          ggml_graph_compute_thread (inlined)
+                          |
+                           --0.65%--0x7b68f788979e
+                                     0x7b68f709caa3
+                                     0x7b68f7129c6b
+
+     9.87%  gdn      gdn                  [.] ggml_compute_forward_gated_delta_net
+            |
+            |--3.43%--ggml_compute_forward_gated_delta_net
+            |          |
+            |          |--1.51%--ggml_vec_mad_f32 (inlined)
+            |          |          ggml_compute_forward_gated_delta_net_one_chunk (inlined)
+            |          |          ggml_compute_forward_gated_delta_net_f32 (inlined)
+            |          |          ggml_compute_forward_gated_delta_net
+            |          |          ggml_compute_forward (inlined)
+            |          |          ggml_graph_compute_thread (inlined)
+            |          |          |
+            |          |           --1.27%--0x7b68f788979e
+            |          |                     0x7b68f709caa3
+            |          |                     0x7b68f7129c6b
+            |          |
+            |           --1.46%--ggml_compute_forward_gated_delta_net_one_chunk (inlined)
+            |                     ggml_compute_forward_gated_delta_net_f32 (inlined)
+            |                     ggml_compute_forward_gated_delta_net
+            |                     ggml_compute_forward (inlined)
+            |                     ggml_graph_compute_thread (inlined)
+            |                     |
+            |                      --1.10%--0x7b68f788979e
+            |                                0x7b68f709caa3
+            |                                0x7b68f7129c6b
+            |
+            |--3.23%--ggml_vec_scale_f32 (inlined)
+            |          ggml_compute_forward_gated_delta_net_one_chunk (inlined)
+            |          ggml_compute_forward_gated_delta_net_f32 (inlined)
+            |          ggml_compute_forward_gated_delta_net
+            |          ggml_compute_forward (inlined)
+            |          ggml_graph_compute_thread (inlined)
+            |          |
+            |          |--2.64%--0x7b68f788979e
+            |          |          0x7b68f709caa3
+            |          |          0x7b68f7129c6b
+            |          |
+            |           --0.59%--GOMP_parallel
+            |                     ggml_graph_compute
+            |                     Graph::compute() (inlined)
+            |                     Graph::advance() (inlined)
+            |                     main
+            |                     0x7b68f702a1c9
+            |                     __libc_start_main
+            |                     _start
+            |
+            |--2.30%--ggml_compute_forward_gated_delta_net_one_chunk (inlined)
+            |          ggml_compute_forward_gated_delta_net_f32 (inlined)
+            |          ggml_compute_forward_gated_delta_net
+            |          ggml_compute_forward (inlined)
+            |          ggml_graph_compute_thread (inlined)
+            |          |
+            |           --1.89%--0x7b68f788979e
+            |                     0x7b68f709caa3
+            |                     0x7b68f7129c6b
+            |
+             --0.64%--ggml_vec_mad_f32 (inlined)
+                       ggml_compute_forward_gated_delta_net_one_chunk (inlined)
+                       ggml_compute_forward_gated_delta_net_f32 (inlined)
+                       ggml_compute_forward_gated_delta_net
+                       ggml_compute_forward (inlined)
+                       ggml_graph_compute_thread (inlined)
+                       |
+                        --0.54%--0x7b68f788979e
+                                  0x7b68f709caa3
+                                  0x7b68f7129c6b
+
+     9.53%  gdn      gdn                  [.] ggml_vec_dot_f32
+            |
+             --9.16%--ggml_vec_dot_f32
+                       |
+                       |--3.26%--ggml_compute_forward_gated_delta_net
+                       |          ggml_compute_forward_gated_delta_net_f32 (inlined)
+                       |          ggml_compute_forward_gated_delta_net
+                       |          |
+                       |           --3.11%--ggml_compute_forward (inlined)
+                       |                     ggml_graph_compute_thread (inlined)
+                       |                     |
+                       |                     |--2.60%--0x7b68f788979e
+                       |                     |          0x7b68f709caa3
+                       |                     |          0x7b68f7129c6b
+                       |                     |
+                       |                      --0.51%--GOMP_parallel
+                       |                                ggml_graph_compute
+                       |                                Graph::compute() (inlined)
+                       |                                Graph::advance() (inlined)
+                       |                                main
+                       |                                0x7b68f702a1c9
+                       |                                __libc_start_main
+                       |                                _start
+                       |
+                       |--3.02%--ggml_compute_forward_gated_delta_net_one_chunk (inlined)
+                       |          ggml_compute_forward_gated_delta_net_f32 (inlined)
+                       |          ggml_compute_forward_gated_delta_net
+                       |          |
+                       |           --2.89%--ggml_compute_forward (inlined)
+                       |                     ggml_graph_compute_thread (inlined)
+                       |                     |
+                       |                     |--2.39%--0x7b68f788979e
+                       |                     |          0x7b68f709caa3
+                       |                     |          0x7b68f7129c6b
+                       |                     |
+                       |                      --0.50%--GOMP_parallel
+                       |                                ggml_graph_compute
+                       |                                Graph::compute() (inlined)
+                       |                                Graph::advance() (inlined)
+                       |                                main
+                       |                                0x7b68f702a1c9
+                       |                                __libc_start_main
+                       |                                _start
+                       |
+                        --2.88%--ggml_vec_dot_f32
+                                  |
+                                  |--1.54%--ggml_compute_forward_gated_delta_net
+                                  |          ggml_compute_forward_gated_delta_net_f32 (inlined)
+                                  |          ggml_compute_forward_gated_delta_net
+                                  |          ggml_compute_forward (inlined)
+                                  |          ggml_graph_compute_thread (inlined)
+                                  |          |
+                                  |           --1.30%--0x7b68f788979e
+                                  |                     0x7b68f709caa3
+                                  |                     0x7b68f7129c6b
+                                  |
+                                   --1.34%--ggml_compute_forward_gated_delta_net_one_chunk (inlined)
+                                             ggml_compute_forward_gated_delta_net_f32 (inlined)
+                                             ggml_compute_forward_gated_delta_net
+                                             ggml_compute_forward (inlined)
+                                             ggml_graph_compute_thread (inlined)
+                                             |
+                                              --1.07%--0x7b68f788979e
+                                                        0x7b68f709caa3
+                                                        0x7b68f7129c6b
+
+     1.63%  gdn      libgomp.so.1.0.0     [.] 0x00000000000256c6
+            |
+            ---0x7b68f788c6c6
+               0x7b68f7889778
+               0x7b68f709caa3
+               0x7b68f7129c6b
+
+     0.85%  gdn      libgomp.so.1.0.0     [.] 0x00000000000256cd
+            |
+            ---0x7b68f788c6cd
+               0x7b68f7889778
+               0x7b68f709caa3
+               0x7b68f7129c6b
+
+     0.56%  gdn      libgomp.so.1.0.0     [.] 0x00000000000256cb
+            |
+            ---0x7b68f788c6cb
+               0x7b68f7889778
+               0x7b68f709caa3
+               0x7b68f7129c6b
+
+
+
+#
+# (Cannot load tips.txt file, please install perf!)
+#

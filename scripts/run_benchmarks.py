@@ -7,6 +7,7 @@ import json
 import os
 from pathlib import Path
 import platform
+import random
 import re
 import subprocess
 import sys
@@ -21,6 +22,75 @@ SUFFIX = ".exe" if os.name == "nt" else ""
 RESULTS = ROOT / "results"
 GDN_COLUMNS = ("mode,length,threads,pinned,repeat,tokens,seconds,tokens_s,peak_rss_bytes,"
                "free_ram_bytes,copy_s,decay_s,delta_s,update_s,readout_s").split(",")
+FOOTPRINT_KIB = (128, 512, 1024, 2048, 4096, 8192, 16384, 24576, 49152, 98304, 196608)
+BEST_PERFORMANCE = "ded574b5-45a0-4f42-8737-46345c09c238"
+DESKTOP_APPS = {"chrome", "msedge", "firefox", "brave", "opera", "vivaldi", "code", "devenv",
+                "idea64", "pycharm64", "clion64", "cursor", "windsurf"}
+
+
+def desktop_apps():
+    processes = {proc.pid: Path(name).stem.lower() for proc in psutil.process_iter(["name"])
+                 if (name := proc.info["name"]) and Path(name).stem.lower() in DESKTOP_APPS}
+    user32 = ctypes.windll.user32
+    from ctypes import wintypes
+    window_callback = ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM)
+    visible = set()
+
+    @window_callback
+    def inspect_window(window, _):
+        pid = wintypes.DWORD()
+        user32.GetWindowThreadProcessId(window, ctypes.byref(pid))
+        if pid.value in processes and user32.IsWindowVisible(window) and user32.GetWindowTextLengthW(window):
+            visible.add(processes[pid.value])
+        return True
+
+    if not user32.EnumWindows(inspect_window, 0):
+        raise ctypes.WinError()
+    return sorted(visible), sorted(set(processes.values()) - visible)
+
+
+def require_clean_conditions():
+    if os.name != "nt":
+        raise RuntimeError("The clean rerun checks are specific to the assignment laptop")
+    hardware = dict(line.split("=", 1) for line in execute([BIN / f"machine{SUFFIX}"]).splitlines())
+    overlay = power_overlay()
+    if hardware.get("ac_line_status") != "1" or overlay != {"status": 0, "guid": BEST_PERFORMANCE}:
+        raise RuntimeError("Connect AC power and select Windows Best Performance")
+    apps, background = desktop_apps()
+    if apps:
+        raise RuntimeError("Close open browser and IDE windows: " + ", ".join(apps))
+    return background
+
+
+def write_measurement(name, runs):
+    header = None
+    with (RESULTS / name).open("w", newline="") as file:
+        writer = csv.writer(file)
+        for command in runs:
+            output = execute(command)
+            columns, *rows = csv.reader(output.splitlines())
+            if header is None:
+                header = columns
+                writer.writerow(header)
+            if columns != header or len(rows) != 3 or any(len(row) != len(header) for row in rows):
+                raise RuntimeError(f"Unexpected {name} output: {output}")
+            writer.writerows(rows)
+            file.flush()
+            print(name, *command[1:], flush=True)
+
+
+def measure_working_sets(cpus):
+    endpoints = (1, len(cpus))
+    gdn = BIN / f"gdn{SUFFIX}"
+    ceilings = BIN / f"ceilings{SUFFIX}"
+    write_measurement("history_states.csv", ([gdn, "history", n] for n in endpoints))
+    runs = [[gdn, "rotate", n, count, diagnostic]
+            for n in endpoints for count in (1, 4, 12, 36) for diagnostic in (0, 1)]
+    random.Random(24).shuffle(runs)
+    write_measurement("working_sets.csv", runs)
+    runs = [[ceilings, "copy", n, kib * 1024] for n in endpoints for kib in FOOTPRINT_KIB]
+    runs += [[ceilings, "fma", n] for n in endpoints]
+    write_measurement("ceilings.csv", runs)
 
 
 def execute(args, env=None):
@@ -56,6 +126,7 @@ def affinity(cpus):
 
 def measure_stream(cpus):
     hardware = execute([BIN / f"machine{SUFFIX}"])
+    (RESULTS / "stream_hardware.txt").write_text(hardware)
     cache_bytes = sum(int(line.split(",")[1]) for line in hardware.splitlines() if line.startswith("cache=3,"))
     bytes_per_array = 20000000 * 8
     if bytes_per_array < 4 * cache_bytes:
@@ -92,8 +163,9 @@ def measure_stream(cpus):
             print(f"STREAM threads={threads}", flush=True)
 
 
-def sweep(allow_battery=False, stream_only=False):
-    RESULTS.mkdir(exist_ok=True)
+def sweep(allow_battery=False, stream_only=False, clean=False):
+    RESULTS.mkdir(parents=True, exist_ok=True)
+    background = require_clean_conditions() if clean else []
     hardware = execute([BIN / f"machine{SUFFIX}"])
     (RESULTS / ("stream_hardware.txt" if stream_only else "hardware.txt")).write_text(hardware)
     info = dict(line.split("=", 1) for line in hardware.splitlines())
@@ -109,14 +181,17 @@ def sweep(allow_battery=False, stream_only=False):
                 "power_scheme": execute(["powercfg", "/getactivescheme"]).strip() if os.name == "nt" else "unrecorded",
                 "effective_power_overlay": power_overlay(),
                 "p_core_logical_indices": cpus, "timings_provisional": info.get("ac_line_status") != "1",
-                "background_apps_closed": False,
-                "background_note": "Desktop applications remained open during measurement. Background activity is a possible source of timing variation.",
+                "background_apps_closed": clean,
+                "background_browser_ide_processes_at_start": background,
+                "background_note": ("No visible browser or IDE windows. The Codex chat remained open."
+                                    if clean else "Background app closure was not verified."),
                 "quantization": "FP32 synthetic operator inputs, model quantization and perplexity do not apply to Option 5",
                 "gdn_chunk_tokens": 128, "warmup": "One graph call before each configuration",
                 "repeats": 3, "minimum_repeat_seconds": 0.35,
                 "llama_commit": "8bb3cf0d216a5ae48360179f2931daf284be4d01"}
     (RESULTS / "environment.json").write_text(json.dumps(metadata, indent=2))
-    execute([BIN / f"gdn{SUFFIX}", "check"])
+    correctness = execute([BIN / f"gdn{SUFFIX}", "check"])
+    (RESULTS / "gdn_correctness.json").write_text(correctness, encoding="utf-8")
     configs = [(mode, length, threads, 1)
                for threads in range(1, len(cpus) + 1)
                for mode, lengths in (("prefill", (512, 4096, 32768)), ("decode", (1024, 8192, 32768)))
@@ -126,23 +201,48 @@ def sweep(allow_battery=False, stream_only=False):
     with (RESULTS / "gdn_raw.csv").open("w", newline="") as file:
         writer = csv.writer(file)
         writer.writerow(GDN_COLUMNS)
-        for mode, length, threads, pinned in configs:
-            output = execute([BIN / f"gdn{SUFFIX}", "bench", threads, mode, length, pinned])
+        order = [(config, None) for config in configs]
+        if clean:
+            rng = random.Random(2023522)
+            order = []
+            for repeat in range(3):
+                round_configs = configs.copy()
+                rng.shuffle(round_configs)
+                order.extend((config, repeat) for config in round_configs)
+        for (mode, length, threads, pinned), repeat in order:
+            if clean:
+                require_clean_conditions()
+            command = [BIN / f"gdn{SUFFIX}", "bench", threads, mode, length, pinned]
+            output = execute(command + ([1] if clean else []))
             rows = list(csv.reader(output.splitlines()))
-            if len(rows) != 3 or any(len(row) != len(GDN_COLUMNS) for row in rows):
+            if len(rows) != (1 if clean else 3) or any(len(row) != len(GDN_COLUMNS) for row in rows):
                 raise RuntimeError(f"Unexpected measurement output {output}")
             for row in rows:
                 if float(row[8]) > 4.5e9 or float(row[9]) < 1e9:
                     raise RuntimeError("Run violates memory budget or free-memory threshold")
+                if repeat is not None:
+                    row[4] = repeat
             writer.writerows(rows)
             file.flush()
             print(f"GDN {mode} length={length} threads={threads} pinned={pinned}", flush=True)
+    if clean:
+        require_clean_conditions()
     measure_stream(cpus)
+    if clean:
+        require_clean_conditions()
+        measure_working_sets(cpus)
+        require_clean_conditions()
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--allow-battery", action="store_true")
     parser.add_argument("--stream-only", action="store_true")
+    parser.add_argument("--clean-rerun", action="store_true",
+                        help="Verify laptop conditions, interleave repeats, and collect working-set and ceiling data")
+    parser.add_argument("--output", type=Path, default=RESULTS)
     args = parser.parse_args()
-    sweep(args.allow_battery, args.stream_only)
+    if args.clean_rerun and (args.allow_battery or args.stream_only):
+        parser.error("--clean-rerun requires the full AC-powered sweep")
+    RESULTS = args.output.resolve()
+    sweep(args.allow_battery, args.stream_only, args.clean_rerun)

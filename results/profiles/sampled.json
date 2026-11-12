@@ -1,0 +1,10 @@
+{
+  "environment": "Ubuntu 24.04 under WSL2, GCC 13.3.0 RelWithDebInfo",
+  "event": "cpu-clock:u",
+  "target_frequency_hz": 499,
+  "decode_1_samples": 4421,
+  "decode_6_samples": 24308,
+  "prefill_1_samples": 4640,
+  "report_note": "WSL2 perf attributed about 21% of one-worker decode CPU samples to each copy call stack. At six workers, 43.5% of aggregate CPU samples landed in libgomp. This corroborates copy and worker-runtime costs on a separate Linux build. These CPU sample shares do not measure Windows wall time.",
+  "slide_note": "WSL2 perf found both copy call sites. Six-worker samples also concentrated in the OpenMP runtime."
+}

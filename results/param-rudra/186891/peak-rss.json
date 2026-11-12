@@ -1,0 +1,4 @@
+{
+  "peak_rss_bytes": 1423314944,
+  "method": "Linux getrusage(RUSAGE_CHILDREN)"
+}

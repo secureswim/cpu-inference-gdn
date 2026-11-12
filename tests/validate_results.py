@@ -47,5 +47,29 @@ for row in stream:
 
 assert len(PdfReader(ROOT / "output/pdf/Project_1_Report.pdf").pages) == 4
 assert sum(row["seconds"] for row in json.loads((ROOT / "results/talk-timings.json").read_text())) == 600
-assert len(list((ROOT / "output/plots").glob("*.png"))) == 6
-print(f"Validated {len(gdn)} GDN and {len(stream)} STREAM rows, four report pages and 600 seconds of talk timings.")
+study = json.loads((ROOT / "results/summary.json").read_text()).get("working_set_study")
+if study:
+    endpoints = (1, thread_count)
+    rotation = rows("working_sets.csv")
+    assert Counter((int(r["threads"]), int(r["states"]), int(r["diagnostic"])) for r in rotation) == {
+        (n, count, diagnostic): 3 for n in endpoints for count in (1, 4, 12, 36) for diagnostic in (0, 1)
+    }
+    for row in rotation:
+        assert int(row["steps"]) > 0 and int(row["steps"]) % int(row["states"]) == 0
+        graph, carry, elapsed = (float(row[key]) for key in ("graph_seconds", "carry_seconds", "seconds"))
+        assert 0 <= graph + carry <= elapsed and elapsed >= 0.5
+        assert (graph > 0 and carry > 0) if int(row["diagnostic"]) else graph == carry == 0
+        assert 0 < int(row["peak_rss_bytes"]) < 4.5e9
+    for n in endpoints:
+        ceiling = [r for r in rows("ceilings.csv") if int(r["threads"]) == n]
+        assert Counter(row["mode"] for row in ceiling) == {"copy": 33, "fma": 3}
+        for row in ceiling:
+            assert float(row["seconds"]) >= 0.35
+            assert math.isclose(float(row["giga_per_second"]),
+                                int(row["work"]) / float(row["seconds"]) / 1e9, rel_tol=2e-8)
+    assert len(rows("history_states.csv")) == 6
+    assert len(list((ROOT / "output/plots").glob("*.png"))) == 9
+else:
+    assert len(list((ROOT / "output/plots").glob("*.png"))) == 6
+print(f"Validated {len(gdn)} GDN and {len(stream)} STREAM rows, supplemental study when present, "
+      "four report pages and 600 seconds of talk timings.")

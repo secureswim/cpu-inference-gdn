@@ -1,0 +1,206 @@
+# To display the perf.data header info, please use --header/--header-only options.
+#
+#
+# Total Lost Samples: 0
+#
+# Samples: 4K of event 'cpu-clock:u'
+# Event count (approx.): 9298597120
+#
+# Overhead  Command  Shared Object     Symbol
+# ........  .......  ................  ........................................................................................................................................................................................................................................................................................................................................................................................
+#
+    49.72%  gdn      gdn               [.] ggml_compute_forward_gated_delta_net
+            |
+            |--28.38%--ggml_compute_forward_gated_delta_net
+            |          |
+            |          |--20.09%--ggml_compute_forward_gated_delta_net_one_chunk (inlined)
+            |          |          ggml_compute_forward_gated_delta_net_f32 (inlined)
+            |          |          ggml_compute_forward_gated_delta_net
+            |          |          ggml_compute_forward (inlined)
+            |          |          ggml_graph_compute_thread (inlined)
+            |          |          ggml_graph_compute
+            |          |          Graph::compute() (inlined)
+            |          |          Graph::advance() (inlined)
+            |          |          main
+            |          |          0x7cb0fd62a1c9
+            |          |          __libc_start_main
+            |          |          _start
+            |          |
+            |          |--6.01%--ggml_vec_mad_f32 (inlined)
+            |          |          ggml_compute_forward_gated_delta_net_one_chunk (inlined)
+            |          |          ggml_compute_forward_gated_delta_net_f32 (inlined)
+            |          |          ggml_compute_forward_gated_delta_net
+            |          |          ggml_compute_forward (inlined)
+            |          |          ggml_graph_compute_thread (inlined)
+            |          |          ggml_graph_compute
+            |          |          Graph::compute() (inlined)
+            |          |          Graph::advance() (inlined)
+            |          |          main
+            |          |          0x7cb0fd62a1c9
+            |          |          __libc_start_main
+            |          |          _start
+            |          |
+            |           --2.28%--ggml_vec_scale_f32 (inlined)
+            |                     ggml_compute_forward_gated_delta_net_one_chunk (inlined)
+            |                     ggml_compute_forward_gated_delta_net_f32 (inlined)
+            |                     ggml_compute_forward_gated_delta_net
+            |                     ggml_compute_forward (inlined)
+            |                     ggml_graph_compute_thread (inlined)
+            |                     ggml_graph_compute
+            |                     Graph::compute() (inlined)
+            |                     Graph::advance() (inlined)
+            |                     main
+            |                     0x7cb0fd62a1c9
+            |                     __libc_start_main
+            |                     _start
+            |
+            |--11.68%--ggml_compute_forward_gated_delta_net_one_chunk (inlined)
+            |          ggml_compute_forward_gated_delta_net_f32 (inlined)
+            |          ggml_compute_forward_gated_delta_net
+            |          ggml_compute_forward (inlined)
+            |          ggml_graph_compute_thread (inlined)
+            |          ggml_graph_compute
+            |          Graph::compute() (inlined)
+            |          Graph::advance() (inlined)
+            |          main
+            |          0x7cb0fd62a1c9
+            |          __libc_start_main
+            |          _start
+            |
+            |--5.13%--ggml_vec_scale_f32 (inlined)
+            |          ggml_compute_forward_gated_delta_net_one_chunk (inlined)
+            |          ggml_compute_forward_gated_delta_net_f32 (inlined)
+            |          ggml_compute_forward_gated_delta_net
+            |          ggml_compute_forward (inlined)
+            |          ggml_graph_compute_thread (inlined)
+            |          ggml_graph_compute
+            |          Graph::compute() (inlined)
+            |          Graph::advance() (inlined)
+            |          main
+            |          0x7cb0fd62a1c9
+            |          __libc_start_main
+            |          _start
+            |
+            |--2.95%--ggml_vec_mad_f32 (inlined)
+            |          ggml_compute_forward_gated_delta_net_one_chunk (inlined)
+            |          ggml_compute_forward_gated_delta_net_f32 (inlined)
+            |          ggml_compute_forward_gated_delta_net
+            |          ggml_compute_forward (inlined)
+            |          ggml_graph_compute_thread (inlined)
+            |          ggml_graph_compute
+            |          Graph::compute() (inlined)
+            |          Graph::advance() (inlined)
+            |          main
+            |          0x7cb0fd62a1c9
+            |          __libc_start_main
+            |          _start
+            |
+             --1.55%--_mm256_fmadd_ps (inlined)
+                       ggml_vec_mad_f32 (inlined)
+                       ggml_compute_forward_gated_delta_net_one_chunk (inlined)
+                       ggml_compute_forward_gated_delta_net_f32 (inlined)
+                       ggml_compute_forward_gated_delta_net
+                       ggml_compute_forward (inlined)
+                       ggml_graph_compute_thread (inlined)
+                       ggml_graph_compute
+                       Graph::compute() (inlined)
+                       Graph::advance() (inlined)
+                       main
+                       0x7cb0fd62a1c9
+                       __libc_start_main
+                       _start
+
+    48.19%  gdn      gdn               [.] ggml_vec_dot_f32
+            |
+            |--47.33%--ggml_vec_dot_f32
+            |          |
+            |          |--16.70%--ggml_vec_dot_f32
+            |          |          |
+            |          |          |--9.16%--ggml_compute_forward_gated_delta_net_one_chunk (inlined)
+            |          |          |          ggml_compute_forward_gated_delta_net_f32 (inlined)
+            |          |          |          ggml_compute_forward_gated_delta_net
+            |          |          |          ggml_compute_forward (inlined)
+            |          |          |          ggml_graph_compute_thread (inlined)
+            |          |          |          ggml_graph_compute
+            |          |          |          Graph::compute() (inlined)
+            |          |          |          Graph::advance() (inlined)
+            |          |          |          main
+            |          |          |          0x7cb0fd62a1c9
+            |          |          |          __libc_start_main
+            |          |          |          _start
+            |          |          |
+            |          |           --7.54%--ggml_compute_forward_gated_delta_net
+            |          |                     ggml_compute_forward_gated_delta_net_f32 (inlined)
+            |          |                     ggml_compute_forward_gated_delta_net
+            |          |                     ggml_compute_forward (inlined)
+            |          |                     ggml_graph_compute_thread (inlined)
+            |          |                     ggml_graph_compute
+            |          |                     Graph::compute() (inlined)
+            |          |                     Graph::advance() (inlined)
+            |          |                     main
+            |          |                     0x7cb0fd62a1c9
+            |          |                     __libc_start_main
+            |          |                     _start
+            |          |
+            |          |--15.93%--ggml_compute_forward_gated_delta_net_one_chunk (inlined)
+            |          |          ggml_compute_forward_gated_delta_net_f32 (inlined)
+            |          |          ggml_compute_forward_gated_delta_net
+            |          |          |
+            |          |           --15.26%--ggml_compute_forward (inlined)
+            |          |                     ggml_graph_compute_thread (inlined)
+            |          |                     ggml_graph_compute
+            |          |                     Graph::compute() (inlined)
+            |          |                     Graph::advance() (inlined)
+            |          |                     main
+            |          |                     0x7cb0fd62a1c9
+            |          |                     __libc_start_main
+            |          |                     _start
+            |          |
+            |           --14.70%--ggml_compute_forward_gated_delta_net
+            |                     ggml_compute_forward_gated_delta_net_f32 (inlined)
+            |                     ggml_compute_forward_gated_delta_net
+            |                     |
+            |                      --13.79%--ggml_compute_forward (inlined)
+            |                                ggml_graph_compute_thread (inlined)
+            |                                ggml_graph_compute
+            |                                Graph::compute() (inlined)
+            |                                Graph::advance() (inlined)
+            |                                main
+            |                                0x7cb0fd62a1c9
+            |                                __libc_start_main
+            |                                _start
+            |
+             --0.65%--_mm256_add_ps (inlined)
+                       ggml_vec_dot_f32
+
+     1.14%  gdn      libc.so.6         [.] 0x0000000000188d47
+            |
+            ---0x7cb0fd788d47
+               |
+               |--0.60%--main
+               |          Graph::carry_state() (inlined)
+               |          Graph::advance() (inlined)
+               |          main
+               |          0x7cb0fd62a1c9
+               |          __libc_start_main
+               |          _start
+               |
+                --0.54%--ggml_compute_forward_gated_delta_net
+                          ggml_compute_forward_gated_delta_net_one_chunk (inlined)
+                          ggml_compute_forward_gated_delta_net_f32 (inlined)
+                          ggml_compute_forward_gated_delta_net
+                          ggml_compute_forward (inlined)
+                          ggml_graph_compute_thread (inlined)
+                          ggml_graph_compute
+                          Graph::compute() (inlined)
+                          Graph::advance() (inlined)
+                          main
+                          0x7cb0fd62a1c9
+                          __libc_start_main
+                          _start
+
+
+
+#
+# (Cannot load tips.txt file, please install perf!)
+#

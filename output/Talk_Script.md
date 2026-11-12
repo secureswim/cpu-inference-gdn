@@ -4,70 +4,76 @@
 
 0:00 to 0:25
 
-We measured one Gated DeltaNet layer on a laptop CPU. The experiment asks how much one decode step costs and how its recurrent state compares with the memory used by an attention layer. I will also show the prefill and thread sweeps, explain the bandwidth prediction, and close with the shared PARAM Rudra test.
+At one thousand twenty-four tokens of starting history, one decode step took about 487 microseconds on one performance core and 482 on six. That measures one recurrent layer, including the driver state copy. We then changed the number of recurrent states to test how the memory footprint affects latency.
 
 ## Slide 2 - The Gated DeltaNet recurrence
 
-0:25 to 1:30
+0:25 to 1:20
 
 Read these equations for one value head and one token. M sub t minus one is the incoming state. First we multiply the old state by the exponential of the log-decay gate. The resulting matrix, M bar, predicts the value from the current key. The difference between the actual value and that prediction is the residual. Beta scales that residual. Its outer product with the key adds a rank-one correction to the state. Finally the updated state multiplies the query, and we divide by the square root of the head dimension. The sixteen query and key heads are shared across thirty-two value heads using the value head index modulo sixteen. The state shape is fixed as the sequence grows.
 
 ## Slide 3 - Laptop setup and timing protocol
 
-1:30 to 2:15
+1:20 to 2:00
 
-The laptop has six performance cores and eight efficiency-class cores reported by Windows. We pin one worker per physical performance core and sweep one through six workers. The fused operator runs in a CPU-only ggml build using AVX2 and FMA. Each configuration gets a warmup followed by three repeats. Prefill processes chunks of one hundred twenty-eight tokens, while decode restores its starting history before every repeat. We record elapsed time and peak working set. The laptop is plugged in with Best Performance selected, and desktop applications remained open. We treat that activity as a possible source of variation.
+The laptop has six performance cores, eight efficiency cores and two low-power efficiency cores. The affinity mask uses one hardware thread per performance core. We sweep one through six workers with a CPU-only AVX2 and FMA build. Each configuration has a warmup and three timed repeats. A seeded order interleaves configurations. Prefill processes chunks of one hundred twenty-eight tokens, and decode restores its starting history before timing. The rerun used AC power and Best Performance with the browser and IDE windows closed.
 
 ## Slide 4 - Correctness against an FP64 reference
 
-2:15 to 3:10
+2:00 to 2:45
 
 We checked the same fused ggml operator used in the timing runs. The scalar reference implements the recurrence independently in double precision. Across a thousand recurrent steps, the query, key and value inputs change while the state carries forward. We compare both the output and the state after each step because errors in the state can affect future tokens. The largest absolute differences are about one times ten to the minus seven in state and about one times ten to the minus eight in output. We also compare one graph processing seventeen tokens with seventeen single-token graphs. The comparison returns zero difference for the tested input. These checks take the place of a model-level sanity check for this operator-only option.
 
 ## Slide 5 - Decode speed vs. starting context
 
-3:10 to 4:00
+2:45 to 3:30
 
-Each point measures one-token calls after advancing the state through the context shown on the horizontal axis. The timer includes the driver’s state carry. On one core, the mean remains between about two thousand one hundred and two thousand two hundred tokens per second across the three contexts. At one thousand twenty-four tokens the reciprocal of the mean throughput is 0.47 milliseconds per token. At six cores that same configuration reaches 1,816 ± 304 tokens per second. The six-core mean falls at thirty-two thousand seven hundred sixty-eight tokens even though the state allocation and work per step stay fixed. These runs cannot isolate the cause of the fall.
+Each point times single-token calls after preparing the context shown. Every history uses the same seeded block of one hundred twenty-eight tokens and ends at the same block boundary. The maximum difference between the prepared states was 5.96e-8. The tensor sizes and work per step stay fixed. The timing spread and the interleaved run order matter when interpreting differences. At one thousand twenty-four history, the one-core measurement is 487 microseconds per step. Six cores reached 2,076 ± 460 tokens per second.
 
 ## Slide 6 - Prefill speed vs. prompt length
 
-4:00 to 4:45
+3:30 to 4:10
 
-Prefill processes complete prompts of five hundred twelve, four thousand ninety-six and thirty-two thousand seven hundred sixty-eight tokens. The driver uses fixed-size chunks of one hundred twenty-eight tokens and starts each full prompt from zero state. The same seeded input block repeats across chunks, keeping the buffers bounded. At four thousand ninety-six tokens, six P cores reach 16,076 ± 313 tokens per second across three repeats. At the longest prompt the mean is 14,338. That is a lower rate, with considerable repeat variation. The next slide holds prompt length constant to isolate the effect of worker count.
+Prefill processes complete prompts of five hundred twelve, four thousand ninety-six and thirty-two thousand seven hundred sixty-eight tokens. The driver starts each full prompt from zero state and uses fixed chunks of one hundred twenty-eight. The same seeded block repeats across chunks. At four thousand ninety-six tokens, six P cores reach 14,052 ± 4,233 tokens per second across three repeats. At the longest prompt the six-core mean is 14,524.
 
 ## Slide 7 - Thread scaling from one to six P cores
 
-4:45 to 5:30
+4:10 to 4:50
 
-Here each series is normalized to its own one-core rate. The decode series starts from a one thousand twenty-four token history, and the prefill series uses a four thousand ninety-six token prompt. At six cores, prefill is 2.81 times its one-core rate. Decode is 0.84 times its one-core rate. The backend divides work across heads. Each single-token call also pays dispatch, synchronization and state carry costs. Prefill spreads fixed call costs over one hundred twenty-eight tokens. These costs help explain the different scaling patterns.
+Here each series is normalized to its own one-core rate. The decode series starts from a one thousand twenty-four token history, and the prefill series uses a four thousand ninety-six token prompt. At six cores, prefill is 2.99 times its one-core rate. Decode is 1.01 times its one-core rate. The backend divides work across heads. Each single-token call also pays dispatch, synchronization and state carry costs. Prefill spreads fixed call costs over one hundred twenty-eight tokens. These costs help explain the different scaling patterns.
 
-## Slide 8 - Time inside the fused operator
+## Slide 8 - Two state copies with different costs
 
-5:30 to 6:30
+4:50 to 5:45
 
-These are scoped timer measurements from inside the fused operator with one worker. In decode, the three largest shares are initial state copy, decay, and output dot products. The rank-one update is almost tied with output dot products. In prefill the top three are output dot products, decay, and delta dot products. The same initial state copy serves the whole chunk during prefill, but decode performs it on every graph call. That changes which part of the operator dominates. The percentages normalize to the five timed phases and exclude graph scheduling and the separate state carry in the driver. We used uninstrumented runs for throughput. Windows blocked supplemental CPU sampling, so this breakdown uses scoped timers.
+The scoped timers measure five phases inside the fused operator on one worker. The ggml initial copy runs inside head ranges assigned to different workers, so its one-worker percentage cannot be used as a serial fraction. After ggml returns, the driver performs a separate serial copy to carry the next state. With one state that copy averages 121 microseconds, or 22 percent of our diagnostic step. The operator percentages exclude this driver copy. WSL2 perf attributed about 21% of one-worker decode CPU samples to each copy call stack. At six workers, 43.5% of aggregate CPU samples landed in libgomp. This corroborates copy and worker-runtime costs on a separate Linux build. These CPU sample shares do not measure Windows wall time.
 
 ## Slide 9 - Predicted vs. measured decode speed
 
-6:30 to 7:35
+5:45 to 6:30
 
-The roofline check divides STREAM Triad bandwidth by logical bytes moved per decoded token. At six cores, STREAM gives 80.95 gigabytes per second. The logical traffic count includes reading and writing the operator state, the driver’s state carry copy, and the small inputs and output. That is 8.05 mebibytes per token. The resulting prediction is 9,594 tokens per second. At the same core count the measured rate is 1,816. The prediction charges all counted traffic to DRAM. The two mebibyte state can fit in the shared cache, so some of that traffic may be served there. The kernel also revisits state in multiple phases, and dispatch and synchronization take time. Without hardware-counter data we cannot assign a share of the gap to each cause.
+The assignment comparison divides STREAM Triad bandwidth by our logical byte count per step. At six cores, STREAM gives 60.05 gigabytes per second. The logical count includes two state copies and the small input and output tensors. That gives 7,116 tokens per second compared with 2,076 measured. The estimate treats the counted bytes as DRAM traffic. A single state can fit in the shared cache, and graph scheduling, arithmetic, and extra state passes also take time.
 
 ## Slide 10 - State memory vs. attention KV cache
 
-7:35 to 8:25
+6:30 to 7:15
 
-The Gated DeltaNet state holds thirty-two matrices, each one hundred twenty-eight by one hundred twenty-eight FP32 elements. This gives two mebibytes per layer at every context length. For attention we assume sixteen KV heads with the same head width and FP32 keys and values. Each extra token therefore adds sixteen kibibytes per layer, giving sixteen mebibytes at one thousand twenty-four tokens and five hundred twelve mebibytes at thirty-two thousand seven hundred sixty-eight. This chart compares persistent state only. Separately, the largest measured laptop process working set was 22.5 mebibytes. The raw results record peak working set for every configuration, including temporary buffers and runtime overhead.
+The Gated DeltaNet state holds thirty-two matrices of one hundred twenty-eight by one hundred twenty-eight FP32 values. This is two mebibytes per layer. Qwen3-Next full attention uses two key-value heads of width two hundred fifty-six. With F16 keys and values, each token adds two kibibytes per attention layer. At thirty-two thousand seven hundred sixty-eight tokens that gives sixty-four mebibytes. These figures describe persistent recurrence and attention KV storage. Process working set includes buffers and runtime overhead.
 
-## Slide 11 - Thread placement experiment
+## Slide 11 - Decode across independent states
 
-8:25 to 9:15
+7:15 to 8:20
 
-For the additional experiment we held the worker count and workload fixed and changed the processor placement policy. In the first configuration, workers are restricted to the physical P cores. In the second, the operating system can choose their placement. At one thousand twenty-four context, the pinned decode mean is 4.1 percent higher, a difference smaller than either sample standard deviation. Prefill shows a larger observed gain of 17.5 percent. We ran three repeats per setting, and the configurations ran at different times. Run order and background activity could affect the size of the prefill gain.
+The added experiment cycles through one, four, twelve and thirty-six independent states using one reusable graph. Each step performs the same arithmetic on the same input shapes. Thirty-six states represent seventy-two mebibytes of recurrent memory, compared with twenty-four mebibytes of shared L3. On one core latency changes from 563 to 535 microseconds per layer step. On six it changes from 595 to 622. One round over thirty-six states takes 19.3 milliseconds on one core and 22.4 on six. The footprint corresponds to the model’s thirty-six recurrent layers. The benchmark isolates the recurrent operation and its state carry. A complete model also has projections, attention, and expert layers.
 
-## Slide 12 - Shared PARAM Rudra CPU reference
+## Slide 12 - Cache and compute ceilings
 
-9:15 to 10:00
+8:20 to 9:20
 
-The course reference used Llama 3.2 1B Instruct Q4 K M on a Xeon Gold CPU with four threads. For a five hundred twelve token prompt followed by one hundred twenty-eight generated tokens, the combined rate was 93.92 tokens per second, with a sample standard deviation of 0.07 across three repeats. Peak RSS is unavailable because the cluster returned zero and the compute node lacked GNU time. The reference is full-model inference. Our Option 5 operator measurements show a fixed two mebibyte recurrent state and stronger thread scaling in prefill than in single-token decode. Raw results, build notes, and scripts are in the repository.
+The source-level count gives about 3.67 million floating-point operations per step, excluding the exponentials. Dividing by the logical byte count gives 0.435 FLOP per byte. We measured effective bandwidth at several working-set sizes and used the one and sixteen mebibyte copy points as cache-sized references. STREAM supplies the large-array DRAM reference. An AVX2 FMA loop gives the measured compute ceiling. We plot one-state and thirty-six-state decode at the same logical intensity. Cache capacity alone cannot tell us how many requests reached each level, and the byte model omits some passes over the state. The roofline puts the measurements on a common scale and shows the gap to those reference rates.
+
+## Slide 13 - Shared PARAM Rudra CPU reference
+
+9:20 to 10:00
+
+The course reference used Llama 3.2 1B Instruct Q4 K M on four Xeon Gold CPU threads. The rerun delivered 92.77 combined tokens per second for a five hundred twelve token prompt and one hundred twenty-eight decode tokens. The benchmark process reached 1.33 gibibytes of peak resident memory. The full-model reference has a different scope from our layer study. The laptop results show stable state size and stronger scaling in prefill than in single-token decode.
