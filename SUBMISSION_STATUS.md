@@ -19,7 +19,7 @@
 - [x] Required plots generated from those CSVs.
 - [x] Four-page numerical report rendered and checked.
 - [x] Talk deck and ten-minute speaker script generated and checked.
-- [ ] Shared PARAM Rudra reference run completed on the actual course node.
+- [x] Shared PARAM Rudra reference run completed on the actual course node (job 186881).
 - [ ] Separate sampled VTune/uProf or perf trace collected.
 - [ ] Course common slide template applied.
 - [ ] Team-member names and allocation confirmed.
@@ -27,4 +27,6 @@
 
 The controlled measurements ran after the user confirmed the charger and performance mode. Windows reports AC power and an effective Best Performance overlay. Its underlying power scheme still reports Balanced. Desktop applications remained open, which limits control of background interference. GDN single-token decode has visible timing spread and dispatch overhead, documented in the report.
 
-The PARAM Rudra run is deferred by the user's request. Windows rejected supplemental sampling with profiling-policy error `0xc5585011`. Scoped timings from the actual upstream GDN operator are complete. A separate VTune/uProf or perf trace still requires a machine/session where sampling is permitted.
+PARAM Rudra job 186881 measured **93.92 ± 0.07 tokens/s** for combined prefill and decode on four CPU threads. Peak RSS is unavailable. Raw evidence is in `results/param-rudra/186881/`.
+
+ Windows rejected supplemental sampling with profiling-policy error `0xc5585011`. Scoped timings from the actual upstream GDN operator are complete. A separate VTune/uProf or perf trace still requires a machine/session where sampling is permitted.

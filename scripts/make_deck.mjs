@@ -12,6 +12,8 @@ const {finalizePresentation,applyPresentationChartFont}=await import(pathToFileU
 const data=JSON.parse(await fs.readFile(path.join(root,'results/summary.json'),'utf8'));
 const env=JSON.parse(await fs.readFile(path.join(root,'results/environment.json'),'utf8'));
 const checks=JSON.parse(await fs.readFile(path.join(root,'results/mamba_correctness.json'),'utf8'));
+const [rudra]=JSON.parse(await fs.readFile(path.join(root,'results/param-rudra/186881/reference.json'),'utf8'));
+const rudraRate=`${rudra.avg_ts.toFixed(2)} ± ${rudra.stddev_ts.toFixed(2)} tokens/s`;
 const t=data.max_threads;
 const g=(mode,length,threads=t,pinned=1)=>data.gdn.find(r=>r.mode===mode && r.length===String(length) && r.threads===String(threads) && r.pinned===String(pinned));
 const m=(heads,variant,rank,simd=1)=>data.mamba.find(r=>r.heads===String(heads)&&r.variant===String(variant)&&r.rank===String(rank)&&r.simd===String(simd));
@@ -140,9 +142,9 @@ function chart(s,type,categories,series,{x=70,y=164,w=1130,h=420,yTitle='Operato
  text(s,`MIMO / SISO latency   ${ratio.toFixed(2)}x at 2 MiB, ${large.toFixed(2)}x at 32 MiB`,70,618,1140,42,25,teal,true);
 }
 {
- const s=slide('Reproducibility and remaining course steps',
- `The repository includes the exact source commits, the CPU-only build, the official reference functions, correctness evidence, raw repeated measurements, and the code that produces the figures and report. The peak working set remains within the assignment's budget. The main conclusions concern recurrent operator costs and the measured cost of MIMO on this CPU. The PARAM Rudra shared reference run is deferred until course-node access is available. The course template and student recording also need to be completed. A separate sampled profiler trace would complement the scoped operator breakdown. Those remaining requirements are recorded explicitly so the submission can be finished without confusing missing evidence with a completed experiment.`);
- text(s,'Pinned sources and reproducible CPU benchmarks\nRaw CSVs, correctness checks, plots, four-page report\nPARAM Rudra reference run deferred by request\nCourse template, sampled trace, and student recording pending',70,180,1140,310,32);
+ const s=slide('Shared PARAM Rudra reference',
+ `The repository includes the exact source commits, the CPU-only build, the official reference functions, correctness evidence, raw repeated measurements, and the code that produces the figures and report. The peak working set remains within the assignment's budget. The main conclusions concern recurrent operator costs and the measured cost of MIMO on this CPU. On PARAM Rudra, four CPU threads ran Llama 3.2 1B Instruct Q4_K_M with a 512-token prompt and 128-token decode. The combined rate was ${rudraRate} across three repeats. Slurm returned zero for peak RSS, so that measurement is unavailable. The course template and student recording also need to be completed. A separate sampled profiler trace would complement the scoped operator breakdown. Those remaining requirements are recorded explicitly so the submission can be finished without confusing missing evidence with a completed experiment.`);
+ text(s,`Llama 3.2 1B Instruct Q4_K_M on four CPU threads\n512-token prompt + 128-token decode\n${rudraRate} across three repeats\nXeon Gold 6240R, node rdcn20, Slurm job 186881\nPeak RSS unavailable`,70,180,1140,310,32);
  text(s,'github.com/secureswim/cpu-inference-gdn-mamba3',70,580,1140,55,28,teal,true);
 }
 

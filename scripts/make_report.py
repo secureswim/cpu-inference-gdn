@@ -47,6 +47,7 @@ def make_report():
     env = json.loads((ROOT / "results/environment.json").read_text())
     checks = json.loads((ROOT / "results/mamba_correctness.json").read_text())
     gcheck = json.loads((ROOT / "results/gdn_correctness.json").read_text(encoding="utf-8-sig"))
+    rudra, = json.loads((ROOT / "results/param-rudra/186881/reference.json").read_text())
     threads = data["max_threads"]
     def gd(mode, length, t=threads, pin=1):
         return next(r for r in data["gdn"] if (r["mode"], r["length"], r["threads"], r["pinned"]) == (mode, str(length), str(t), str(pin)))
@@ -108,7 +109,7 @@ def make_report():
     add(paragraph("State memory and measurement limits", "ReportHeading"))
     add(figure("state_vs_kv", height=168))
     add(paragraph(f"GDN stores 32 x 128 x 128 FP32 values, exactly 2 MiB per layer. An attention layer with 16 KV heads of size 128 stores 2 x T x 16 x 128 x 4 bytes, reaching 512 MiB at 32k tokens. The plot is an analytical storage comparison. It excludes model weights, attention compute buffers, and GDN input/output buffers. Peak GDN process working set was {data['max_gdn_rss']/2**20:.1f} MiB and minimum observed system free RAM was {data['min_free_ram']/2**30:.2f} GiB. Peak working set includes process overhead. Memory checks kept every run below the 4.5 GB budget, but working-set sampling does not prove the absence of all hard page faults."))
-    add(paragraph("The charger was connected and the effective Windows power overlay was Best Performance. The base power scheme reports Balanced. The separate power-confirmation record verifies the overlay. Desktop applications remained open. Raw files retain timestamps, free memory and per-configuration peaks. Windows blocked supplemental WPR sampling with policy error 0xc5585011. The shared PARAM Rudra result is deferred by request.", "SmallNote"))
+    add(paragraph("The charger was connected and the effective Windows power overlay was Best Performance. The base power scheme reports Balanced. The separate power-confirmation record verifies the overlay. Desktop applications remained open. Raw files retain timestamps, free memory and per-configuration peaks. Windows blocked supplemental WPR sampling with policy error 0xc5585011.", "SmallNote"))
     add(PageBreak())
 
     add(paragraph("Bonus - Mamba-3 decode on CPU", "ReportTitle"))
@@ -121,9 +122,11 @@ def make_report():
                ["Mamba-3 MIMO rank 4", f"{mimo:.1f} us", "~27 / 8 = 3.375 FLOP/byte"]], [215, 105, 190]))
     add(paragraph(f"<b>Does MIMO's extra compute come at little CPU cost?</b> At 32 heads and a 2 MiB main state, AVX2 MIMO takes {mimo:.1f} us versus {siso:.1f} us for SISO, or {data['mimo_siso_ratio_2MiB']:.2f}x the latency. With 512 heads and a 32 MiB main state, the ratio is {data['mimo_siso_ratio_32MiB']:.2f}x. These measured ratios answer the question for this CPU and kernel implementation. SIMD fuses state update and readout to reuse each updated vector in registers. It still performs extra rank work. The main recurrent matrix size stays fixed, while carried previous keys increase with rank. Raw CSVs include total persistent bytes and arithmetic intensity including side arrays. FLOP estimates omit exp/tanh/SiLU and preprocessing costs."))
     add(paragraph("The benchmark covers rotary preprocessing, recurrence, skip, SiLU gating, and MIMO output mixing. Dense layer projections and BC normalization are outside this kernel study. Random inputs establish numerical consistency and kernel cost. They do not support model perplexity claims. Public Mamba-3 checkpoints exist [5], but this experiment does not load them.", "SmallNote"))
+    add(paragraph("Shared PARAM Rudra reference", "ReportHeading"))
+    add(paragraph(f"Job 186881 on rdcn20 (Xeon Gold 6240R) ran Llama 3.2 1B Instruct Q4_K_M on {rudra['n_threads']} CPU threads. The combined {rudra['n_prompt']}-token prefill and {rudra['n_gen']}-token decode averaged <b>{rudra['avg_ts']:.2f} +/- {rudra['stddev_ts']:.2f} tokens/s</b> (mean +/- SD, three repeats). Peak RSS was unavailable because Slurm returned zero. Evidence is in results/param-rudra/186881/.", "SmallNote"))
     add(paragraph("References and remaining submission requirements", "ReportHeading"))
     add(paragraph("[1] ggml-org/llama.cpp, commit 8bb3cf0d, ggml/src/ggml-cpu/ops.cpp. github.com/ggml-org/llama.cpp<br/>[2] McCalpin, STREAM 5.10. cs.virginia.edu/stream/<br/>[3] Lahoti et al., Mamba-3, ICLR 2026. arxiv.org/abs/2603.15569<br/>[4] state-spaces/mamba, commit e9594ce1, official recurrence and rotary references. github.com/state-spaces/mamba<br/>[5] Official checkpoint. huggingface.co/state-spaces/mamba3-mimo-1.5b", "SmallNote"))
-    add(paragraph("Pending external requirements are the shared PARAM Rudra run, course slide-template matching, team-member details, the student's recorded ten-minute delivery, and a sampled Windows profiler trace. Local phase profiling and the talk script accompany this report.", "SmallNote"))
+    add(paragraph("Pending external requirements are course slide-template matching, team-member details, the student's recorded ten-minute delivery, and a sampled Windows profiler trace. Local phase profiling and the talk script accompany this report.", "SmallNote"))
     path = OUT / "pdf/Project_1_Report.pdf"
     path.parent.mkdir(parents=True, exist_ok=True)
     def footer(canvas, doc):

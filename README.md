@@ -18,7 +18,7 @@ The AC-powered sweeps, plots, four-page report, and talk materials are complete.
 
 The AVX2 Mamba-3 SISO kernel averages **439.0 microseconds per step**, while rank-4 MIMO averages **1,394.1 microseconds** at the same 2 MiB main-state size, a **3.18x latency ratio**. At 32 MiB the ratio is **3.38x**. MIMO's extra compute has a measurable CPU cost in this implementation. GDN uses 2 MiB persistent main state per layer, compared with an analytical 512 MiB FP32 attention KV cache at 32k tokens with 16 KV heads.
 
-The raw data contain 120 GDN rows, 54 Mamba rows, and 72 STREAM rows. `tests/validate_results.py` audits full sweep coverage, repeat counts, rates, memory bounds, correctness records, report length, and talk duration. External requirements appear in `SUBMISSION_STATUS.md`, including the PARAM Rudra run deferred by request.
+The raw data contain 120 GDN rows, 54 Mamba rows, and 72 STREAM rows. `tests/validate_results.py` audits full sweep coverage, repeat counts, rates, memory bounds, correctness records, report length, and talk duration. External requirements appear in `SUBMISSION_STATUS.md`, and the shared PARAM Rudra result is recorded below.
 
 ## Windows reproduction
 
@@ -95,7 +95,9 @@ The stretch uses `ggml_map_custom1` as a small graph operator with packed input 
 | `output/Project_1_Presentation.pptx` | Presentation with editable data charts and speaker notes |
 | `output/Talk_Script.md` | Script for a ten-minute delivery |
 
-The course template, team details, access to PARAM Rudra, and a student-recorded talk require course/user input. Windows blocked supplemental CPU sampling with profiling-policy error `0xc5585011`. The report includes phase timings measured within the actual upstream operator, and `results/profiles/README.md` records the sampling limitation. `scripts/run_shared_reference.sh` runs the exact combined 512-token prompt / 128-token decode test with CPU-only Llama-3.2-1B Q4_K_M. It requires the allocated thread count and model path.
+The course template, team details, and a student-recorded talk require course/user input. Windows blocked supplemental CPU sampling with profiling-policy error `0xc5585011`. The report includes phase timings measured within the actual upstream operator, and `results/profiles/README.md` records the sampling limitation. `scripts/run_shared_reference.sh` runs the exact combined 512-token prompt / 128-token decode test with CPU-only Llama-3.2-1B Q4_K_M. It requires the allocated thread count and model path.
+
+PARAM Rudra job **186881** completed on `rdcn20` (Xeon Gold 6240R). Llama 3.2 1B Instruct Q4_K_M with four CPU threads averaged **93.92 ± 0.07 tokens/s** (mean ± SD across three repeats) for the combined 512-token prompt and 128-token decode. [Raw benchmark and Slurm evidence](results/param-rudra/186881/). The GCC 8.5 build linked with `-DCMAKE_CXX_STANDARD_LIBRARIES:STRING=-lstdc++fs`. The compute node lacked GNU time and Slurm reported zero for MaxRSS, so peak RSS is unavailable.
 
 The talk has twelve slides, editable charts, speaker notes, and a 600-second delivery plan. `scripts/make_deck.mjs` supplies its source. Rebuilding that deck uses the Codex bundled Artifact Tool runtime, with `RUNTIME_NODE_MODULES`, `RUNTIME_PYTHON`, and `PRESENTATIONS_SKILL_DIR` set to the installed runtime/skill locations. Set `DECK_OUTPUT` to a new output filename when rebuilding an existing deck. This authoring dependency is separate from the experiment's Python/C++ dependencies. The committed PowerPoint file is directly editable in PowerPoint.
 
