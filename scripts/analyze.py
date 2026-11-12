@@ -45,14 +45,12 @@ def save(fig, name):
 
 def analyze():
     gdn = read("gdn_raw.csv")
-    mamba = read("mamba_raw.csv")
     stream = read("stream_raw.csv")
     summary = group(gdn, ("mode", "length", "threads", "pinned"), "tokens_s")
     threads = sorted({int(row["threads"]) for row in gdn})
     max_thread = max(threads)
     measured = lambda mode, length, t=max_thread, pin=1: summary[(mode, str(length), str(t), str(pin))]
     stream_summary = group([r for r in stream if r["kernel"] == "Triad"], ("threads",), "best_MB_s")
-    bonus = group(mamba, ("heads", "variant", "rank", "simd"), "seconds_step")
 
     fig, axes = plt.subplots(1, 2, figsize=(10.2, 3.1))
     for ax, mode, lengths, label in zip(axes, ("decode", "prefill"),
@@ -118,27 +116,6 @@ def analyze():
     save(fig, "state_vs_kv")
 
     fig, ax = plt.subplots(figsize=(6.2, 3))
-    cases = ((2, 1, "Mamba-2"), (3, 1, "Mamba-3 SISO"), (3, 4, "Mamba-3 MIMO-4"))
-    for j, simd in enumerate((0, 1)):
-        data = [bonus[("32", str(v), str(r), str(simd))] for v, r, _ in cases]
-        ax.bar(np.arange(3) + (j - .5) * .36, [d["mean"] * 1e6 for d in data],
-               yerr=[d["sd"] * 1e6 for d in data], capsize=3, width=.36,
-               label="Plain C++" if simd == 0 else "AVX2 fused readout", color=COLORS[j])
-    ax.set(xticks=range(3), xticklabels=[c[2] for c in cases], ylabel="Microseconds per step", title="Same 2 MiB main state, one P core")
-    ax.legend(frameon=False)
-    save(fig, "bonus_latency")
-
-    fig, ax = plt.subplots(figsize=(6.2, 3))
-    for j, (v, r, label) in enumerate(cases):
-        points = [bonus[(str(h), str(v), str(r), "1")] for h in (4, 32, 512)]
-        ax.errorbar([0.25, 2, 32], [d["mean"] * 1e6 for d in points],
-                    yerr=[d["sd"] * 1e6 for d in points], marker="o", capsize=3, label=label, color=COLORS[j])
-    ax.set(xlabel="Main state size (MiB)", ylabel="Microseconds per step", xscale="log", yscale="log", xticks=[0.25, 2, 32])
-    ax.set_xticklabels(["0.25", "2", "32"])
-    ax.legend(frameon=False)
-    save(fig, "bonus_state_sizes")
-
-    fig, ax = plt.subplots(figsize=(6.2, 3))
     for j, pin in enumerate((1, 0)):
         data = [measured(mode, length, max_thread, pin) for mode, length in (("decode", 1024), ("prefill", 4096))]
         ax.bar(np.arange(2)+(j-.5)*.36, [d["mean"] for d in data], width=.36,
@@ -150,17 +127,12 @@ def analyze():
 
     exported = {"gdn": [{**dict(zip(("mode", "length", "threads", "pinned"), key)), **value}
                         for key, value in summary.items()],
-                "mamba": [{**dict(zip(("heads", "variant", "rank", "simd"), key)), **value}
-                          for key, value in bonus.items()],
                 "stream_triad": [{"threads": key[0], **value} for key, value in stream_summary.items()],
                 "phase_percent": phase_data, "gdn_logical_bytes": logical_bytes,
                 "max_threads": max_thread, "max_gdn_rss": max(float(r["peak_rss_bytes"]) for r in gdn),
-                "min_free_ram": min(float(r["free_ram_bytes"]) for r in gdn),
-                "max_mamba_rss": max(float(r["peak_rss_bytes"]) for r in mamba)}
-    exported["mimo_siso_ratio_2MiB"] = bonus[("32", "3", "4", "1")]["mean"] / bonus[("32", "3", "1", "1")]["mean"]
-    exported["mimo_siso_ratio_32MiB"] = bonus[("512", "3", "4", "1")]["mean"] / bonus[("512", "3", "1", "1")]["mean"]
+                "min_free_ram": min(float(r["free_ram_bytes"]) for r in gdn)}
     (RESULTS / "summary.json").write_text(json.dumps(exported, indent=2))
-    print(json.dumps({key: exported[key] for key in ("mimo_siso_ratio_2MiB", "mimo_siso_ratio_32MiB", "max_gdn_rss")}))
+    print(f"Summarized {len(gdn)} GDN rows and {len(stream)} STREAM rows.")
 
 
 if __name__ == "__main__":

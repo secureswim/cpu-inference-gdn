@@ -45,33 +45,25 @@ def table(rows, widths):
 def make_report():
     data = json.loads((ROOT / "results/summary.json").read_text())
     env = json.loads((ROOT / "results/environment.json").read_text())
-    checks = json.loads((ROOT / "results/mamba_correctness.json").read_text())
     gcheck = json.loads((ROOT / "results/gdn_correctness.json").read_text(encoding="utf-8-sig"))
     rudra, = json.loads((ROOT / "results/param-rudra/186881/reference.json").read_text())
     threads = data["max_threads"]
     def gd(mode, length, t=threads, pin=1):
         return next(r for r in data["gdn"] if (r["mode"], r["length"], r["threads"], r["pinned"]) == (mode, str(length), str(t), str(pin)))
-    def mb(heads, variant, rank, simd=1):
-        return next(r for r in data["mamba"] if (r["heads"], r["variant"], r["rank"], r["simd"]) == (str(heads), str(variant), str(rank), str(simd)))
     def measurement(row):
         return f"{row['mean']:,.0f} +/- {row['sd']:,.0f}"
     bw = next(r["mean"] for r in data["stream_triad"] if r["threads"] == str(threads)) / 1000
     predicted = bw * 1e9 / data["gdn_logical_bytes"]
     pinned = gd("decode", 1024)["mean"]
     unpinned = gd("decode", 1024, pin=0)["mean"]
-    mimo = mb(32, 3, 4)["mean"] * 1e6
-    siso = mb(32, 3, 1)["mean"] * 1e6
-    m2 = mb(32, 2, 1)["mean"] * 1e6
-    state_error = max(r["max_abs"]["state"] for r in checks)
-    output_error = max(r["max_abs"]["output"] for r in checks)
     provisional = env["timings_provisional"]
     story = []
     add = story.append
     add(paragraph("Recurrent inference on a laptop CPU", "ReportTitle"))
-    add(paragraph("Option 5 - Gated DeltaNet operator study with Mamba-3 SISO / MIMO bonus<br/>Siddharth Kumar", "ReportHeading"))
+    add(paragraph("Option 5 - Gated DeltaNet operator study<br/>Siddharth Kumar", "ReportHeading"))
     if provisional:
         add(paragraph("<b>Provisional timing run.</b> The laptop ran on battery. Repeat the sweep on AC power in performance mode before final assessment."))
-    add(paragraph("<b>Research question.</b> What does one Gated DeltaNet decode step cost, and how does its recurrent state compare with attention's KV cache? The bonus asks whether Mamba-3's rank-4 MIMO update adds little CPU latency at a fixed main-state size. We study batch-one recurrence kernels with synthetic inputs. Operator tokens/s describes one layer, so it cannot establish full-model throughput or language quality."))
+    add(paragraph("<b>Research question.</b> What does one Gated DeltaNet decode step cost, and how does its recurrent state compare with attention's KV cache? We study batch-one recurrence kernels with synthetic inputs. Operator tokens/s describes one layer, so it cannot establish full-model throughput or language quality."))
     add(table([["Hardware / build", "Recorded configuration"],
                ["CPU and memory", "Intel Core Ultra 9 185H. 6 P cores / 12 P logical threads and 10 lower-efficiency cores. 31.44 GiB usable RAM."],
                ["Caches and SIMD", "P-core L1D 48 KiB, L1I 64 KiB, L2 2 MiB per core. Shared L3 24 MiB. AVX2/FMA available, AVX-512 unavailable."],
@@ -112,27 +104,23 @@ def make_report():
     add(paragraph("The charger was connected and the effective Windows power overlay was Best Performance. The base power scheme reports Balanced. The separate power-confirmation record verifies the overlay. Desktop applications remained open. Raw files retain timestamps, free memory and per-configuration peaks. Windows blocked supplemental WPR sampling with policy error 0xc5585011.", "SmallNote"))
     add(PageBreak())
 
-    add(paragraph("Bonus - Mamba-3 decode on CPU", "ReportTitle"))
-    add(paragraph("The implementation follows exponential-trapezoidal discretization [3]. In rotated coordinates, alpha = exp(A x DT), beta = (1 - lambda) x DT x alpha, and gamma = lambda x DT. The state update combines alpha times the old state, gamma times the current projected input outer product, and beta times the previous projected input outer product. Accumulated rotary angles implement the complex-valued transition using real coordinates. SISO uses pairwise rotation. MIMO uses the official halved pairing and sums rank-4 input and output contributions [4]."))
-    add(paragraph(f"The test executes the unmodified official PyTorch recurrence and rotary reference functions on CPU via AST extraction. It checks every state, output, previous key, previous input, and angle for 1,000 changing-input steps per case. Sixteen Mamba-3 cases cover ranks 1/4, scalar/AVX2, and state dimensions 16/30/128, including SIMD tails and four cases at the 32-head benchmark shape. Two Euler cases verify Mamba-2. Tolerance is atol 2e-5 and rtol 2e-4. Across all cases, maximum state error is {state_error:.2e} and output error is {output_error:.2e}. The ggml custom-node stretch also matches direct execution exactly across 1,000 steps for both ranks."))
-    add(figure("bonus_latency", height=165))
-    add(table([["AVX2, same 2 MiB main state", "Mean step time", "Main-state arithmetic intensity"],
-               ["Mamba-2 Euler", f"{m2:.1f} us", "~5 / 8 = 0.625 FLOP/byte"],
-               ["Mamba-3 SISO", f"{siso:.1f} us", "~9 / 8 = 1.125 FLOP/byte"],
-               ["Mamba-3 MIMO rank 4", f"{mimo:.1f} us", "~27 / 8 = 3.375 FLOP/byte"]], [215, 105, 190]))
-    add(paragraph(f"<b>Does MIMO's extra compute come at little CPU cost?</b> At 32 heads and a 2 MiB main state, AVX2 MIMO takes {mimo:.1f} us versus {siso:.1f} us for SISO, or {data['mimo_siso_ratio_2MiB']:.2f}x the latency. With 512 heads and a 32 MiB main state, the ratio is {data['mimo_siso_ratio_32MiB']:.2f}x. These measured ratios answer the question for this CPU and kernel implementation. SIMD fuses state update and readout to reuse each updated vector in registers. It still performs extra rank work. The main recurrent matrix size stays fixed, while carried previous keys increase with rank. Raw CSVs include total persistent bytes and arithmetic intensity including side arrays. FLOP estimates omit exp/tanh/SiLU and preprocessing costs."))
-    add(paragraph("The benchmark covers rotary preprocessing, recurrence, skip, SiLU gating, and MIMO output mixing. Dense layer projections and BC normalization are outside this kernel study. Random inputs establish numerical consistency and kernel cost. They do not support model perplexity claims. Public Mamba-3 checkpoints exist [5], but this experiment does not load them.", "SmallNote"))
+    add(paragraph("Conclusions and shared CPU reference", "ReportTitle"))
+    add(paragraph("What the operator measurements show", "ReportHeading"))
+    add(paragraph("Gated DeltaNet keeps a fixed 2 MiB recurrent state per layer in the tested shape. The analytical FP32 attention cache reaches 512 MiB per layer at 32k tokens with 16 KV heads. Each single-token Gated DeltaNet call still reads and updates the recurrent state. Chunked prefill distributes fixed call costs over more tokens, which helps explain its stronger thread scaling on this machine."))
+    add(paragraph("The STREAM calculation gives a useful reference for traffic that reaches DRAM. The measured operator also revisits state in cache and pays graph and thread overhead. The affinity comparison holds the worker count and input sizes fixed. Its small decode difference sits within the observed run-to-run spread."))
+    add(paragraph("Reproducing the measurements", "ReportHeading"))
+    add(paragraph("Build the pinned ggml backend and run the driver correctness check before collecting throughput. The sweep records three repeats per configuration for prefill, decode, and STREAM, along with process memory and the effective CPU placement. Report the instrumented phase timings separately from the throughput runs because those timers add work inside the operator. The repository provides raw CSV files, plotting code, the compiler settings, and the command used to select physical performance cores."))
     add(paragraph("Shared PARAM Rudra reference", "ReportHeading"))
     add(paragraph(f"Job 186881 on rdcn20 (Xeon Gold 6240R) ran Llama 3.2 1B Instruct Q4_K_M on {rudra['n_threads']} CPU threads. The combined {rudra['n_prompt']}-token prefill and {rudra['n_gen']}-token decode averaged <b>{rudra['avg_ts']:.2f} +/- {rudra['stddev_ts']:.2f} tokens/s</b> (mean +/- SD, three repeats). Peak RSS was unavailable because Slurm returned zero. Evidence is in results/param-rudra/186881/.", "SmallNote"))
     add(paragraph("References and remaining submission requirements", "ReportHeading"))
-    add(paragraph("[1] ggml-org/llama.cpp, commit 8bb3cf0d, ggml/src/ggml-cpu/ops.cpp. github.com/ggml-org/llama.cpp<br/>[2] McCalpin, STREAM 5.10. cs.virginia.edu/stream/<br/>[3] Lahoti et al., Mamba-3, ICLR 2026. arxiv.org/abs/2603.15569<br/>[4] state-spaces/mamba, commit e9594ce1, official recurrence and rotary references. github.com/state-spaces/mamba<br/>[5] Official checkpoint. huggingface.co/state-spaces/mamba3-mimo-1.5b", "SmallNote"))
+    add(paragraph("[1] ggml-org/llama.cpp, commit 8bb3cf0d, ggml/src/ggml-cpu/ops.cpp. github.com/ggml-org/llama.cpp<br/>[2] McCalpin, STREAM 5.10. cs.virginia.edu/stream/", "SmallNote"))
     add(paragraph("Pending external requirements are course slide-template matching, team-member details, the student's recorded ten-minute delivery, and a sampled Windows profiler trace. Local phase profiling and the talk script accompany this report.", "SmallNote"))
     path = OUT / "pdf/Project_1_Report.pdf"
     path.parent.mkdir(parents=True, exist_ok=True)
     def footer(canvas, doc):
         canvas.setStrokeColor(TEAL); canvas.setLineWidth(.5); canvas.line(42, 33, 553, 33)
         canvas.setFont("Helvetica", 7.5); canvas.setFillColor(INK)
-        canvas.drawString(42, 22, "CPU inference project | Gated DeltaNet and Mamba-3")
+        canvas.drawString(42, 22, "CPU inference project | Gated DeltaNet")
         canvas.drawRightString(553, 22, str(doc.page))
     doc = SimpleDocTemplate(str(path), pagesize=A4, leftMargin=42, rightMargin=42,
                             topMargin=34, bottomMargin=43, title="CPU inference project", author="Siddharth Kumar")

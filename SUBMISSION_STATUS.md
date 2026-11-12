@@ -6,16 +6,12 @@
 - [x] CPU-only AVX2/FMA build with automatic physical P-core affinity.
 - [x] Independent FP64 GDN reference over 1,000 changing-input steps.
 - [x] Multi-token GDN equivalence check.
-- [x] Mamba-2 Euler, Mamba-3 SISO, and rank-4 MIMO scalar and AVX2 kernels.
-- [x] Official pure PyTorch recurrence and rotary references executed on CPU.
-- [x] Eighteen correctness cases, each checked over 1,000 steps with stated tolerance, including four at the main benchmark shape.
-- [x] Optional ggml graph wrapper, both ranks checked over 1,000 steps.
 - [x] Scripted repeated sweeps, STREAM, profiling, memory logging, plots, and report generator.
 
 ## Measurements and deliverables
 
 - [x] AC power and performance mode confirmed before final timing sweeps.
-- [x] Full raw GDN, STREAM, and Mamba benchmark CSVs generated and reviewed.
+- [x] Full raw GDN and STREAM benchmark CSVs generated and reviewed.
 - [x] Required plots generated from those CSVs.
 - [x] Four-page numerical report rendered and checked.
 - [x] Talk deck and ten-minute speaker script generated and checked.

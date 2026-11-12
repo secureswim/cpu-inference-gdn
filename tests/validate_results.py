@@ -34,18 +34,6 @@ for row in gdn:
     assert float(row["free_ram_bytes"]) > 1e9
     assert float(row["seconds"]) >= 0.35
 
-mamba = rows("mamba_raw.csv")
-expected_mamba = {(str(heads), str(variant), str(rank), str(simd))
-                  for heads in (4, 32, 512)
-                  for variant, rank in ((2, 1), (3, 1), (3, 4)) for simd in (0, 1)}
-counts = Counter(tuple(row[k] for k in ("heads", "variant", "rank", "simd")) for row in mamba)
-assert set(counts) == expected_mamba and set(counts.values()) == {3}
-for row in mamba:
-    assert math.isclose(float(row["tokens_s"]) * float(row["seconds_step"]), 1.0, rel_tol=1e-12)
-    assert int(row["state_bytes"]) == int(row["heads"]) * 128 * 128 * 4
-    assert int(row["persistent_bytes"]) > int(row["state_bytes"])
-    assert int(row["peak_rss_bytes"]) < 4.5e9
-
 stream = rows("stream_raw.csv")
 stream_environment = json.loads((ROOT / "results/stream_environment.json").read_text())
 assert stream_environment["bytes_per_array"] >= 4 * stream_environment["last_level_cache_bytes"] > 0
@@ -57,10 +45,7 @@ for row in stream:
     assert float(row["best_MB_s"]) > 0
     assert float(row["min_seconds"]) <= float(row["average_seconds"]) <= float(row["max_seconds"])
 
-checks = json.loads((ROOT / "results/mamba_correctness.json").read_text())
-assert len(checks) == 18 and all(row["steps"] == 1000 for row in checks)
-assert all(max(row["max_abs"].values()) < 2e-5 for row in checks)
 assert len(PdfReader(ROOT / "output/pdf/Project_1_Report.pdf").pages) == 4
 assert sum(row["seconds"] for row in json.loads((ROOT / "results/talk-timings.json").read_text())) == 600
-assert len(list((ROOT / "output/plots").glob("*.png"))) == 8
-print(f"Validated {len(gdn)} GDN, {len(mamba)} Mamba and {len(stream)} STREAM rows, 18 reference cases, four report pages and 600 seconds of talk timings.")
+assert len(list((ROOT / "output/plots").glob("*.png"))) == 6
+print(f"Validated {len(gdn)} GDN and {len(stream)} STREAM rows, four report pages and 600 seconds of talk timings.")

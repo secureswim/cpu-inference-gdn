@@ -11,14 +11,11 @@ const {Presentation,PresentationFile}=await import(pathToFileURL(path.join(modul
 const {finalizePresentation,applyPresentationChartFont}=await import(pathToFileURL(path.join(skill,'container_tools/artifact_tool_utils.mjs')).href);
 const data=JSON.parse(await fs.readFile(path.join(root,'results/summary.json'),'utf8'));
 const env=JSON.parse(await fs.readFile(path.join(root,'results/environment.json'),'utf8'));
-const checks=JSON.parse(await fs.readFile(path.join(root,'results/mamba_correctness.json'),'utf8'));
 const [rudra]=JSON.parse(await fs.readFile(path.join(root,'results/param-rudra/186881/reference.json'),'utf8'));
 const rudraRate=`${rudra.avg_ts.toFixed(2)} ± ${rudra.stddev_ts.toFixed(2)} tokens/s`;
 const t=data.max_threads;
 const g=(mode,length,threads=t,pinned=1)=>data.gdn.find(r=>r.mode===mode && r.length===String(length) && r.threads===String(threads) && r.pinned===String(pinned));
-const m=(heads,variant,rank,simd=1)=>data.mamba.find(r=>r.heads===String(heads)&&r.variant===String(variant)&&r.rank===String(rank)&&r.simd===String(simd));
 const fmt=n=>Math.round(n).toLocaleString('en-US');
-const us=row=>(row.mean*1e6).toFixed(1);
 const bw=threads=>data.stream_triad.find(r=>r.threads===String(threads)).mean*1e6;
 const navy='#142A43',teal='#176B87',orange='#D66A2B',muted='#4E6072',paper='#F8FAFB';
 const presentation=Presentation.create({slideSize:{width:1280,height:720}});
@@ -51,11 +48,11 @@ function chart(s,type,categories,series,{x=70,y=164,w=1130,h=420,yTitle='Operato
 
 {
  const s=slide('Recurrent inference on a laptop CPU',
- `This project studies the cost of recurrent sequence-model operators on a laptop processor. The main experiment uses the actual Gated DeltaNet operation in llama.cpp. The bonus implements Mamba-3 SISO and rank-four MIMO in C++ and AVX2. I will explain the correctness checks, measured throughput and memory, the bandwidth prediction, and whether MIMO's extra arithmetic has a small cost on this machine. These are single-layer kernel measurements. Full-model generation has additional work.`);
+ `This project studies the cost of recurrent sequence-model operators on a laptop processor. The main experiment uses the actual Gated DeltaNet operation in llama.cpp. I will explain the correctness checks, measured throughput and memory, the bandwidth prediction, and the shared Rudra result. These are single-layer kernel measurements. Full-model generation has additional work.`);
  s.background.fill=navy;
  s.shapes.items[0].text.style={fontFamily:'Arial',fontSize:44,color:'#FFFFFF',bold:true};
  text(s,'Gated DeltaNet operator study',70,250,1120,62,42,'#FFFFFF');
- text(s,'Mamba-3 SISO and rank-4 MIMO bonus',70,325,1120,55,34,'#C6DFE8');
+ text(s,'Option 5 operator study',70,325,1120,55,34,'#C6DFE8');
  text(s,'Siddharth Kumar',70,535,1080,45,28,'#FFFFFF');
  text(s,env.timings_provisional?'Provisional battery measurements':'CPU-only measurements on AC power',70,596,1100,35,23,'#C6DFE8');
 }
@@ -113,37 +110,23 @@ function chart(s,type,categories,series,{x=70,y=164,w=1130,h=420,yTitle='Operato
  chart(s,'bar',['Decode 1k','Prefill 4k'],[{name:'P cores pinned',values:[g('decode',1024).mean,g('prefill',4096).mean]},{name:'OS placement',values:[g('decode',1024,t,0).mean,g('prefill',4096,t,0).mean]}]);
 }
 {
- const s=slide('Mamba-3 recurrence and complex state',
- `Mamba-3 changes the Mamba-2 Euler update in two important mathematical ways before we introduce MIMO. First, exponential-trapezoidal discretization mixes contributions from both the current input and the previous input. The previous contribution carries the decay factor. Omitting it would implement a different recurrence. Second, the complex transition can be represented with real coordinates and accumulated rotary angles. The implementation follows the official pairing conventions, pairwise for SISO and halved for MIMO. Rank four adds four projected input outer products and four readout contributions while keeping the main state matrix dimensions fixed. The previous-key buffer still grows with rank. Dense layer projections and BC normalization sit outside our kernel boundary.`,
- 'https://arxiv.org/abs/2603.15569; https://github.com/state-spaces/mamba/tree/e9594ce1c732d97440f0332fdc43170a2294dbfa');
- text(s,'alpha = exp(A x DT)\nbeta = (1 - lambda) x DT x alpha\ngamma = lambda x DT',70,171,1120,190,34,teal,true);
- text(s,'S_new = alpha x S_old\n              + gamma x current-input outer products\n              + beta x previous-input outer products',70,400,1120,170,30);
- text(s,'Rotary angles carry the complex transition in real coordinates.',70,610,1120,40,23,muted);
+ const s=slide('Checking the Gated DeltaNet implementation',
+ `The driver calls the actual upstream fused operator and tests it against an independent FP64 calculation. At each of one thousand steps, the inputs change and the check compares both the output and the carried recurrent state. Checking state matters because a small error may persist and influence subsequent steps. The multi-token check processes seventeen tokens as one graph and compares that result with seventeen single-token calls. The results matched exactly. These checks establish agreement for the tested shape and synthetic inputs. They make it possible to interpret throughput as the cost of the intended operator. The repository records the numerical errors and includes a command to repeat the check before benchmarking.`);
+ text(s,'Independent FP64 recurrence over 1,000 changing-input steps\nCompared both output and carried state\n17-token graph matched 17 single-token calls exactly',70,180,1140,310,32);
 }
 {
- const maxState=Math.max(...checks.map(r=>r.max_abs.state));
- const maxOutput=Math.max(...checks.map(r=>r.max_abs.output));
- const s=slide('Correctness against the official CPU reference',
- `The numerical reference comes from the official repository. Its surrounding modules import GPU dependencies, so the test extracts the two pure PyTorch function bodies using Python's abstract syntax tree and executes them unchanged on CPU. We compare every output and every recurrent state across one thousand changing-input steps. We also check previous keys, previous inputs, and rotary angles. The cases cover scalar and AVX2 kernels, SISO and rank-four MIMO, state dimensions sixteen, thirty, and one hundred twenty-eight, and four cases at the main benchmark shape. The thirty-dimensional case exercises SIMD tails. The largest state error is ${maxState.toExponential(2)}, within the stated tolerance. A separate ggml custom-node check matches direct execution exactly for both ranks.`,
- 'tests/check_mamba.py; results/mamba_correctness.json; results/mamba_ggml_correctness.txt');
- text(s,`${checks.length} cases, 1,000 changing-input steps per case`,70,176,1130,65,37,teal,true);
- text(s,`Maximum state error ${maxState.toExponential(2)}\nMaximum output error ${maxOutput.toExponential(2)}\nTolerance   atol 2e-5, rtol 2e-4\nSISO and MIMO ggml graph checks match exactly`,70,286,1130,250,31);
- text(s,'Reference checks include SIMD tails and non-square state matrices.',70,610,1130,40,23,muted);
+ const s=slide('Recurrent state and attention cache',
+ `The recurrent state contains thirty-two matrices, each with one hundred twenty-eight by one hundred twenty-eight FP32 entries. That gives two mebibytes per layer. The comparison uses an attention layer with sixteen key-value heads. Each cached token contributes both a key and a value, so the storage grows with the number of cached tokens. At thirty-two thousand tokens this is five hundred twelve mebibytes per layer. This is a comparison of persistent operator state. Model weights, temporary buffers, and process overhead belong to a separate memory accounting. That distinction explains why the resident set recorded during the experiment exceeds the recurrent state size.`);
+ text(s,'Gated DeltaNet state stays at 2 MiB per layer\nFP32 attention KV cache grows with context length\n16 KV heads at 32k tokens use 512 MiB per layer\nProcess RSS includes buffers and runtime overhead',70,180,1140,310,32);
 }
 {
- const ratio=data.mimo_siso_ratio_2MiB;
- const large=data.mimo_siso_ratio_32MiB;
- const s=slide('The measured cost of rank-4 MIMO',
- `The left chart holds the main recurrent state at two mebibytes and uses one performance core. AVX2 Mamba-two takes ${us(m(32,2,1))} microseconds per step. Mamba-three SISO takes ${us(m(32,3,1))}, and rank-four MIMO takes ${us(m(32,3,4))}. That makes MIMO ${ratio.toFixed(2)} times the SISO latency at this state size. The right chart repeats the AVX2 comparison with a thirty-two-mebibyte state, larger than the shared last-level cache. Here the ratio is ${large.toFixed(2)} times. The scalar comparison shows what explicit SIMD and fused readout achieve for these implementations. The AVX2 loop updates one state vector and immediately uses it for output reductions before moving on. This reduces redundant state loads, but rank four still requires extra multiply-adds and readout accumulators. Dominant main-state arithmetic intensity rises from about one point one two five FLOPs per byte for SISO to three point three seven five for MIMO. Full logical-traffic estimates, including side arrays, appear in the CSV. These estimates exclude transcendental operations. The evidence answers the assignment's MIMO question for this processor, these dimensions, and this kernel implementation. Extrapolating to a GPU or full model would require new measurements.`);
- const cats=['Mamba-2','M3 SISO','M3 MIMO-4'];
- const variants=[[2,1],[3,1],[3,4]];
- chart(s,'bar',cats,[{name:'Scalar',values:variants.map(([v,r])=>m(32,v,r,0).mean*1e6)},{name:'AVX2',values:variants.map(([v,r])=>m(32,v,r).mean*1e6)}],{x:55,w:570,yTitle:'us/step, 2 MiB state'});
- chart(s,'bar',cats,[{name:'AVX2',values:variants.map(([v,r])=>m(512,v,r).mean*1e6)}],{x:650,w:570,yTitle:'AVX2 us/step, 32 MiB state',legend:false});
- text(s,`MIMO / SISO latency   ${ratio.toFixed(2)}x at 2 MiB, ${large.toFixed(2)}x at 32 MiB`,70,618,1140,42,25,teal,true);
+ const s=slide('What explains the measured CPU cost',
+ `Single-token decode issues one graph call for each token. At that granularity the cost of dispatch and carrying state between calls can matter alongside the arithmetic. Prefill handles chunks of one hundred twenty-eight tokens and spreads those fixed costs across a larger amount of work. That helps explain the stronger scaling we observe for prefill. The roofline prediction assumes that counted bytes travel to DRAM on every step, and STREAM measures sustained sequential memory traffic. The real operator can reuse a portion of its state in cache. It also revisits that state across the five measured phases. In addition, it pays for synchronization and graph overhead. The gap therefore reflects several costs and cannot be assigned to a single cause from this experiment. For the affinity experiment we compared the same worker count and workload with pinning enabled or with operating system placement. The observed difference in decode was small relative to the spread across repeats. The raw runs preserve that variation. Together these experiments show why a fixed-size recurrent state is useful for capacity while the measured CPU time still depends on how the operator is called and scheduled.`);
+ text(s,'Single-token calls pay graph dispatch and state-copy costs\nChunked prefill amortizes those costs\nSTREAM predicts a rate under a DRAM traffic assumption\nDecode affinity difference sits within repeat variation',70,180,1140,310,32);
 }
 {
  const s=slide('Shared PARAM Rudra reference',
- `The repository includes the exact source commits, the CPU-only build, the official reference functions, correctness evidence, raw repeated measurements, and the code that produces the figures and report. The peak working set remains within the assignment's budget. The main conclusions concern recurrent operator costs and the measured cost of MIMO on this CPU. On PARAM Rudra, four CPU threads ran Llama 3.2 1B Instruct Q4_K_M with a 512-token prompt and 128-token decode. The combined rate was ${rudraRate} across three repeats. Slurm returned zero for peak RSS, so that measurement is unavailable. The course template and student recording also need to be completed. A separate sampled profiler trace would complement the scoped operator breakdown. Those remaining requirements are recorded explicitly so the submission can be finished without confusing missing evidence with a completed experiment.`);
+ `The repository includes the exact source commits, the CPU-only build, the official reference functions, correctness evidence, raw repeated measurements, and the code that produces the figures and report. The peak working set remains within the assignment's budget. The main conclusions concern recurrent operator costs and thread scaling on this CPU. On PARAM Rudra, four CPU threads ran Llama 3.2 1B Instruct Q4_K_M with a 512-token prompt and 128-token decode. The combined rate was ${rudraRate} across three repeats. Slurm returned zero for peak RSS, so that measurement is unavailable. The course template and student recording also need to be completed. A separate sampled profiler trace would complement the scoped operator breakdown. Those remaining requirements are recorded explicitly so the submission can be finished without confusing missing evidence with a completed experiment.`);
  text(s,`Llama 3.2 1B Instruct Q4_K_M on four CPU threads\n512-token prompt + 128-token decode\n${rudraRate} across three repeats\nXeon Gold 6240R, node rdcn20, Slurm job 186881\nPeak RSS unavailable`,70,180,1140,310,32);
  text(s,'github.com/secureswim/cpu-inference-gdn-mamba3',70,580,1140,55,28,teal,true);
 }
@@ -158,7 +141,7 @@ await finalizePresentation({workspaceDir:root,candidatePath:candidate,finalPath,
  integrityValidatorPath:path.join(skill,'container_tools/inspect_presentation_package_integrity.py'),
  layoutValidatorPath:path.join(skill,'container_tools/inspect_presentation_layout_geometry.py'),
  layoutArgs:['--expected-slide-size-emu','12192000,6858000','--validate-heading-fit'],
- explicitTotalSlideCount:12,requiredNativeChartOwnerSlides:[4,5,6,7,8,11],
+ explicitTotalSlideCount:12,requiredNativeChartOwnerSlides:[4,5,6,7,8],
  materializeLiteralChartWorkbooks:true,fontPolicy:{basis:'design',families:['Arial']},
  verifyArtifactToolImport:true,receiptPath:path.join(root,`build/slides/${path.basename(finalPath)}.validation.json`)});
 for(let i=0;i<presentation.slides.items.length;i++){

@@ -16,10 +16,6 @@ cmake --build build/cmake -j 6
 if ($LASTEXITCODE) { throw 'Compilation failed' }
 & build/cmake/gdn.exe check | Set-Content results/gdn_correctness.json
 if ($LASTEXITCODE) { throw 'GDN correctness failed' }
-& build/cmake/mamba_ggml.exe | Set-Content results/mamba_ggml_correctness.txt
-if ($LASTEXITCODE) { throw 'ggml wrapper correctness failed' }
-& $py tests/check_mamba.py
-if ($LASTEXITCODE) { throw 'Mamba correctness failed' }
 & $py -m pip freeze | Set-Content results/python-lock.txt
 if ($AllowBattery) { & $py scripts/run_benchmarks.py --allow-battery }
 else { & $py scripts/run_benchmarks.py }

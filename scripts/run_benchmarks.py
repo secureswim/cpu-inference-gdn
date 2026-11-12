@@ -114,8 +114,7 @@ def sweep(allow_battery=False, stream_only=False):
                 "quantization": "FP32 synthetic operator inputs, model quantization and perplexity do not apply to Option 5",
                 "gdn_chunk_tokens": 128, "warmup": "One graph call before each configuration",
                 "repeats": 3, "minimum_repeat_seconds": 0.35,
-                "llama_commit": "8bb3cf0d216a5ae48360179f2931daf284be4d01",
-                "mamba_commit": "e9594ce1c732d97440f0332fdc43170a2294dbfa"}
+                "llama_commit": "8bb3cf0d216a5ae48360179f2931daf284be4d01"}
     (RESULTS / "environment.json").write_text(json.dumps(metadata, indent=2))
     execute([BIN / f"gdn{SUFFIX}", "check"])
     configs = [(mode, length, threads, 1)
@@ -139,20 +138,6 @@ def sweep(allow_battery=False, stream_only=False):
             file.flush()
             print(f"GDN {mode} length={length} threads={threads} pinned={pinned}", flush=True)
     measure_stream(cpus)
-    with (RESULTS / "mamba_raw.csv").open("w", newline="") as file:
-        writer = None
-        for heads in (4, 32, 512):
-            for variant, rank in ((2, 1), (3, 1), (3, 4)):
-                for simd in (0, 1):
-                    with affinity([cpus[0]]):
-                        output = execute([sys.executable, ROOT / "scripts/benchmark_mamba.py", heads, variant, rank, simd])
-                    for row in json.loads(output):
-                        if writer is None:
-                            writer = csv.DictWriter(file, fieldnames=list(row))
-                            writer.writeheader()
-                        writer.writerow(row)
-                    file.flush()
-                    print(f"Mamba heads={heads} variant={variant} rank={rank} simd={simd}", flush=True)
 
 
 if __name__ == "__main__":

@@ -41,17 +41,17 @@
   },
   {
     "slide": 9,
-    "title": "Mamba-3 recurrence and complex state",
+    "title": "Checking the Gated DeltaNet implementation",
     "seconds": 60
   },
   {
     "slide": 10,
-    "title": "Correctness against the official CPU reference",
+    "title": "Recurrent state and attention cache",
     "seconds": 45
   },
   {
     "slide": 11,
-    "title": "The measured cost of rank-4 MIMO",
+    "title": "What explains the measured CPU cost",
     "seconds": 110
   },
   {
