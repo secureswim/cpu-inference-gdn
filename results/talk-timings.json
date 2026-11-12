@@ -1,62 +1,62 @@
 [
   {
     "slide": 1,
-    "title": "Recurrent inference on a laptop CPU",
-    "seconds": 30
+    "title": "Gated DeltaNet on a laptop CPU",
+    "seconds": 25
   },
   {
     "slide": 2,
-    "title": "Gated DeltaNet and fixed-size state",
-    "seconds": 40
+    "title": "The Gated DeltaNet recurrence",
+    "seconds": 65
   },
   {
     "slide": 3,
-    "title": "Hardware and measurement protocol",
+    "title": "Laptop setup and timing protocol",
     "seconds": 45
   },
   {
     "slide": 4,
-    "title": "Decode and prefill length sweeps",
-    "seconds": 50
+    "title": "Correctness against an FP64 reference",
+    "seconds": 55
   },
   {
     "slide": 5,
-    "title": "Scaling across performance cores",
-    "seconds": 40
+    "title": "Decode speed vs. starting context",
+    "seconds": 50
   },
   {
     "slide": 6,
-    "title": "Time inside the upstream operator",
-    "seconds": 50
-  },
-  {
-    "slide": 7,
-    "title": "A DRAM-bandwidth prediction",
-    "seconds": 50
-  },
-  {
-    "slide": 8,
-    "title": "Own experiment - thread placement",
-    "seconds": 40
-  },
-  {
-    "slide": 9,
-    "title": "Checking the Gated DeltaNet implementation",
-    "seconds": 60
-  },
-  {
-    "slide": 10,
-    "title": "Recurrent state and attention cache",
+    "title": "Prefill speed vs. prompt length",
     "seconds": 45
   },
   {
+    "slide": 7,
+    "title": "Thread scaling from one to six P cores",
+    "seconds": 45
+  },
+  {
+    "slide": 8,
+    "title": "Time inside the fused operator",
+    "seconds": 60
+  },
+  {
+    "slide": 9,
+    "title": "Predicted vs. measured decode speed",
+    "seconds": 65
+  },
+  {
+    "slide": 10,
+    "title": "State memory vs. attention KV cache",
+    "seconds": 50
+  },
+  {
     "slide": 11,
-    "title": "What explains the measured CPU cost",
-    "seconds": 110
+    "title": "Thread placement experiment",
+    "seconds": 50
   },
   {
     "slide": 12,
-    "title": "Shared PARAM Rudra reference",
-    "seconds": 40
+    "title": "Shared PARAM Rudra CPU reference",
+    "seconds": 45
   }
 ]
