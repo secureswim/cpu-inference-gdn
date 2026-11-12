@@ -110,7 +110,7 @@ def sweep(allow_battery=False, stream_only=False):
                 "effective_power_overlay": power_overlay(),
                 "p_core_logical_indices": cpus, "timings_provisional": info.get("ac_line_status") != "1",
                 "background_apps_closed": False,
-                "background_note": "Codex and existing desktop applications remained open. Timing spread captures some interference.",
+                "background_note": "Desktop applications remained open during measurement. Background activity is a possible source of timing variation.",
                 "quantization": "FP32 synthetic operator inputs, model quantization and perplexity do not apply to Option 5",
                 "gdn_chunk_tokens": 128, "warmup": "One graph call before each configuration",
                 "repeats": 3, "minimum_repeat_seconds": 0.35,

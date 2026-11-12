@@ -1,4 +1,4 @@
-// Run with the Codex bundled Node runtime. The experimental pipeline uses Python.
+// Use the Node runtime that provides Artifact Tool.
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -92,7 +92,7 @@ function chart(s,type,categories,series,{x=70,y=164,w=1130,h=420,yTitle='Operato
  const s=slide('Time inside the upstream operator',
  `These profiles use scoped timers inserted into the pinned upstream CPU operator. They measure the initial state copy, decay, delta dot products, rank-one update, and final output dot products. The profile uses one worker so its phase percentages are easy to interpret. Prefill copies the initial state once for a chunk and then processes many tokens. Decode copies it for every one-token graph call. This changes the relative importance of copying. The percentages normalize to the five measured phases. They exclude graph scheduling, the driver's state carry copy, and other work outside those scopes. Instrumented runs supply these percentages, while separate uninstrumented runs supply the headline throughput. A sampled VTune or perf trace would provide an additional check.`);
  chart(s,'bar',names,[{name:'Decode',values:full.map(k=>data.phase_percent.profile[k])},{name:'Prefill',values:full.map(k=>data.phase_percent.profile_prefill[k])}],{yTitle:'Share of scoped time (%)'});
- text(s,'Single worker. Scoped timers perturb execution. Sampled profiler trace remains pending.',70,618,1140,45,22,muted);
+ text(s,'Single worker with scoped timers. Throughput runs use uninstrumented code.',70,618,1140,45,22,muted);
 }
 {
  const threads=Array.from({length:t},(_,i)=>i+1);
@@ -126,7 +126,7 @@ function chart(s,type,categories,series,{x=70,y=164,w=1130,h=420,yTitle='Operato
 }
 {
  const s=slide('Shared PARAM Rudra reference',
- `The repository includes the exact source commits, the CPU-only build, the official reference functions, correctness evidence, raw repeated measurements, and the code that produces the figures and report. The peak working set remains within the assignment's budget. The main conclusions concern recurrent operator costs and thread scaling on this CPU. On PARAM Rudra, four CPU threads ran Llama 3.2 1B Instruct Q4_K_M with a 512-token prompt and 128-token decode. The combined rate was ${rudraRate} across three repeats. Slurm returned zero for peak RSS, so that measurement is unavailable. The course template and student recording also need to be completed. A separate sampled profiler trace would complement the scoped operator breakdown. Those remaining requirements are recorded explicitly so the submission can be finished without confusing missing evidence with a completed experiment.`);
+ `On PARAM Rudra, four CPU threads ran Llama 3.2 1B Instruct Q4_K_M with a 512-token prompt and a 128-token decode. The combined rate was ${rudraRate} across three repeats. Slurm returned zero for peak RSS, so that measurement is unavailable. This shared reference measures a complete quantized model on a Xeon CPU. Our Option 5 study measures a single FP32 Gated DeltaNet operator on the laptop, so the two throughput values describe different workloads. In the operator study, the recurrent state stayed at two mebibytes across the tested history lengths. Prefill scaled more strongly with additional cores than single-token decode. The repository contains the source revisions, raw samples, correctness checks, and scripts to reproduce the figures.`);
  text(s,`Llama 3.2 1B Instruct Q4_K_M on four CPU threads\n512-token prompt + 128-token decode\n${rudraRate} across three repeats\nXeon Gold 6240R, node rdcn20, Slurm job 186881\nPeak RSS unavailable`,70,180,1140,310,32);
  text(s,'github.com/secureswim/cpu-inference-gdn-mamba3',70,580,1140,55,28,teal,true);
 }
@@ -149,7 +149,7 @@ for(let i=0;i<presentation.slides.items.length;i++){
  await fs.writeFile(path.join(root,`build/slides/slide-${i+1}.png`),new Uint8Array(await png.arrayBuffer()));
 }
 let cursor=0;
-let content='# Ten-minute talk script\n\nThe slide timings total 600 seconds. Rehearse with the plots and pauses. Record your own delivery in PowerPoint.\n\n';
+let content='# Ten-minute talk script\n\nSpeaker notes for the twelve-slide presentation.\n\n';
 for(const [index,s] of script.entries()){
  const clock=n=>`${Math.floor(n/60)}:${String(n%60).padStart(2,'0')}`;
  content+=`## Slide ${index+1} - ${s.title}\n\n${clock(cursor)} to ${clock(cursor+s.seconds)}\n\n${s.text}\n\n`;

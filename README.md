@@ -1,22 +1,14 @@
-# CPU inference project
+# Gated DeltaNet CPU Inference
 
-Option 5 Gated DeltaNet CPU operator study.
+Project 1, Option 5. This study measures the fused `GATED_DELTA_NET` operator in a pinned llama.cpp/ggml CPU backend using synthetic Qwen3-Next layer shapes at batch size one.
 
-Author and Git commit identity are Siddharth Kumar, `siddharthatdmk@gmail.com`.
+[Report](output/pdf/Project_1_Report.pdf) · [Slides](output/Project_1_Presentation.pptx) · [Ten-minute talk script](output/Talk_Script.md) · [Plots](output/plots/) · [Benchmark data](results/)
 
-## Assignment scope
+## Results
 
-This project selects **Option 5**. It benchmarks the actual fused `GATED_DELTA_NET` operation from a pinned llama.cpp/ggml CPU backend using the specified Qwen3-Next shapes. It measures a batch-one recurrent layer with synthetic tensors. A full language model, model quantization sweep, and perplexity do not apply to this operator option. Operator throughput cannot establish full-model inference throughput.
-
-## Status
-
-Correctness checks pass. The main GDN check covers 1,000 changing-input steps against an independent FP64 implementation and tests multi-token equivalence.
-
-The AC-powered sweeps, plots, four-page report, and talk materials are complete. The effective Windows overlay was Best Performance, while its base scheme reports Balanced. A separate power-confirmation record verifies the overlay. Desktop applications remained open, and this limitation is stated in the report.
-
-GDN uses 2 MiB persistent main state per layer, compared with an analytical 512 MiB FP32 attention KV cache at 32k tokens with 16 KV heads.
-
-The raw data contain 120 GDN rows and 72 STREAM rows. `tests/validate_results.py` audits full sweep coverage, repeat counts, rates, memory bounds, correctness records, report length, and talk duration. External requirements appear in `SUBMISSION_STATUS.md`, and the shared PARAM Rudra result is recorded below.
+- On an Intel Core Ultra 9 185H, the highest mean operator rates were **16,076 tokens/s** for 4,096-token prefill on six P cores and **2,955 tokens/s** for decode from an 8,192-token history on three P cores. [Sweep summary](results/summary.json)
+- The tested recurrent state occupies **2 MiB** per layer. The analytical FP32 attention KV cache reaches **512 MiB** per layer at 32,768 tokens with 16 KV heads. [Storage comparison](output/plots/state_vs_kv.pdf)
+- The correctness check covers 1,000 changing-input steps against an independent FP64 implementation and checks multi-token equivalence. [Correctness results](results/gdn_correctness.json)
 
 ## Windows reproduction
 
@@ -54,7 +46,7 @@ Connect the charger, choose performance power mode, close other applications whe
 - **Repetitions** include one graph warmup and three independent timed repeats of at least 0.35 seconds. Long prefill prompts can exceed this minimum. Raw CSVs retain elapsed time and token count. Analysis reports mean and sample standard deviation plus min/max.
 - **Memory** uses Windows peak process working set and free system RAM. Each configuration gets a separate process. Within a configuration, the peak is cumulative across the three repeats, giving an upper bound for each repeat. The runner aborts above 4.5 GB process RSS or below 1 GB free RAM. This check does not directly count hard page faults.
 - **STREAM** uses the official unmodified 5.10 C source, 20 million doubles per array, and 20 passes per execution. Each 160 MB array exceeds four times this machine's 24 MiB LLC, as the STREAM sizing rule requires. The three arrays occupy 480 MB. Three independent executions run at every thread count. The summary averages the best Triad bandwidth from those executions. Complete text outputs and a separate timestamped STREAM environment record accompany the CSV. Use `scripts/run_benchmarks.py --stream-only` to repeat this portion alone.
-- **Profiling** adds runtime-selectable scoped timers to the actual upstream GDN loop. Separate single-worker prefill/decode runs measure initial state copy, decay, delta dot products, state update, and output dot products. Percentages exclude driver copy and scheduling. Timer overhead affects only the instrumented runs. Throughput comes from uninstrumented runs. `scripts/profile_linux.sh` supplies sampled `perf` commands. A separate VTune/uProf trace remains a submission requirement on Windows.
+- **Profiling** uses scoped timers in the upstream GDN loop. Single-worker prefill and decode runs measure initial state copy, decay, delta dot products, state update, and output dot products. Percentages exclude driver copy and scheduling. Throughput comes from uninstrumented runs. Windows blocked supplemental CPU sampling with policy error `0xc5585011`. [Profiling method and Linux sampling commands](results/profiles/README.md)
 - **Own experiment** compares P-core pinning with unrestricted OS placement using the same worker count and workload. It records mean and spread. Run order and background processes can confound small differences.
 
 ## Roofline and memory interpretation
@@ -63,28 +55,19 @@ The driver counts a logical lower bound comprising state read/write, the output-
 
 The analytical attention comparison uses FP32 KV, 16 KV heads, and head size 128. KV memory per layer is `2 * T * 16 * 128 * 4` bytes. GDN's main state is `32 * 128 * 128 * 4` bytes, exactly 2 MiB. Input/output buffers, model weights, and full-model layers lie outside that storage comparison.
 
-## Files and deliverables
+## Shared PARAM Rudra reference
 
-| Location | Contents |
-| --- | --- |
-| `src/gdn.cpp` | Actual ggml operator driver and independent FP64 check |
-| `scripts/` | Pinned setup, sweeps, analysis, report, and external-node helpers |
-| `results/` | Hardware, environment, correctness evidence, raw CSVs, and summaries |
-| `output/plots/` | Required plots in PNG and vector PDF |
-| `output/pdf/Project_1_Report.pdf` | Four-page report generated from measurements |
-| `output/Project_1_Presentation.pptx` | Presentation with editable data charts and speaker notes |
-| `output/Talk_Script.md` | Script for a ten-minute delivery |
+Job **186881** ran on `rdcn20` (Xeon Gold 6240R). Llama 3.2 1B Instruct Q4_K_M with four CPU threads averaged **93.92 ± 0.07 tokens/s** (mean ± sample SD across three repeats) for the combined 512-token prompt and 128-token decode. Slurm reported zero for MaxRSS, and the compute node lacked GNU time, so peak RSS is unavailable. Account identifiers, the home path, and process IDs are redacted from the logs. [Raw benchmark and Slurm evidence](results/param-rudra/186881/)
 
-The course template, team details, and a student-recorded talk require course/user input. Windows blocked supplemental CPU sampling with profiling-policy error `0xc5585011`. The report includes phase timings measured within the actual upstream operator, and `results/profiles/README.md` records the sampling limitation. `scripts/run_shared_reference.sh` runs the exact combined 512-token prompt / 128-token decode test with CPU-only Llama-3.2-1B Q4_K_M. It requires the allocated thread count and model path.
+Use `scripts/run_shared_reference.sh` inside a CPU allocation with `LLAMA_SOURCE`, `MODEL`, and `THREADS` set. The original GCC 8.5 build linked with `-DCMAKE_CXX_STANDARD_LIBRARIES:STRING=-lstdc++fs`.
 
-PARAM Rudra job **186881** completed on `rdcn20` (Xeon Gold 6240R). Llama 3.2 1B Instruct Q4_K_M with four CPU threads averaged **93.92 ± 0.07 tokens/s** (mean ± SD across three repeats) for the combined 512-token prompt and 128-token decode. [Raw benchmark and Slurm evidence](results/param-rudra/186881/). The GCC 8.5 build linked with `-DCMAKE_CXX_STANDARD_LIBRARIES:STRING=-lstdc++fs`. The compute node lacked GNU time and Slurm reported zero for MaxRSS, so peak RSS is unavailable.
+## Validation
 
-The talk has twelve slides, editable charts, speaker notes, and a 600-second delivery plan. `scripts/make_deck.mjs` supplies its source. Rebuilding that deck uses the Codex bundled Artifact Tool runtime, with `RUNTIME_NODE_MODULES`, `RUNTIME_PYTHON`, and `PRESENTATIONS_SKILL_DIR` set to the installed runtime/skill locations. Set `DECK_OUTPUT` to a new output filename when rebuilding an existing deck. This authoring dependency is separate from the experiment's Python/C++ dependencies. The committed PowerPoint file is directly editable in PowerPoint.
-
+`tests/validate_results.py` checks the 120 GDN rows, 72 STREAM rows, repeat counts, memory bounds, correctness results, four-page report, and ten-minute talk plan.
 
 ## Sources
 
 - [llama.cpp and ggml](https://github.com/ggml-org/llama.cpp/tree/8bb3cf0d216a5ae48360179f2931daf284be4d01)
 - [STREAM source and run rules](https://www.cs.virginia.edu/stream/)
 
-See `vendor/README.md` for upstream provenance. Results belong to the recorded CPU, build, input distribution, and power conditions. No measured values are invented.
+See `vendor/README.md` for upstream provenance.

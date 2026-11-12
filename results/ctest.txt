@@ -1,8 +1,0 @@
-Internal ctest changing into directory: C:/Users/Siddharth/ldls-project/Slakshna/project-1/build/cmake
-Test project C:/Users/Siddharth/ldls-project/Slakshna/project-1/build/cmake
-    Start 1: gdn_correctness
-1/1 Test #1: gdn_correctness ..................   Passed    2.71 sec
-
-100% tests passed, 0 tests failed out of 1
-
-Total Test time (real) =   2.74 sec

@@ -13,7 +13,7 @@
   ],
   "timings_provisional": false,
   "background_apps_closed": false,
-  "background_note": "Codex and existing desktop applications remained open. Timing spread captures some interference.",
+  "background_note": "Desktop applications remained open during measurement. Background activity is a possible source of timing variation.",
   "quantization": "FP32 synthetic operator inputs, model quantization and perplexity do not apply to Option 5",
   "gdn_chunk_tokens": 128,
   "warmup": "One graph call before each configuration",

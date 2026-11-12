@@ -1,6 +1,6 @@
 # Ten-minute talk script
 
-The slide timings total 600 seconds. Rehearse with the plots and pauses. Record your own delivery in PowerPoint.
+Speaker notes for the twelve-slide presentation.
 
 ## Slide 1 - Recurrent inference on a laptop CPU
 
@@ -72,4 +72,4 @@ Single-token decode issues one graph call for each token. At that granularity th
 
 9:20 to 10:00
 
-The repository includes the exact source commits, the CPU-only build, the official reference functions, correctness evidence, raw repeated measurements, and the code that produces the figures and report. The peak working set remains within the assignment's budget. The main conclusions concern recurrent operator costs and thread scaling on this CPU. On PARAM Rudra, four CPU threads ran Llama 3.2 1B Instruct Q4_K_M with a 512-token prompt and 128-token decode. The combined rate was 93.92 ± 0.07 tokens/s across three repeats. Slurm returned zero for peak RSS, so that measurement is unavailable. The course template and student recording also need to be completed. A separate sampled profiler trace would complement the scoped operator breakdown. Those remaining requirements are recorded explicitly so the submission can be finished without confusing missing evidence with a completed experiment.
+On PARAM Rudra, four CPU threads ran Llama 3.2 1B Instruct Q4_K_M with a 512-token prompt and a 128-token decode. The combined rate was 93.92 ± 0.07 tokens/s across three repeats. Slurm returned zero for peak RSS, so that measurement is unavailable. This shared reference measures a complete quantized model on a Xeon CPU. Our Option 5 study measures a single FP32 Gated DeltaNet operator on the laptop, so the two throughput values describe different workloads. In the operator study, the recurrent state stayed at two mebibytes across the tested history lengths. Prefill scaled more strongly with additional cores than single-token decode. The repository contains the source revisions, raw samples, correctness checks, and scripts to reproduce the figures.

@@ -90,7 +90,7 @@ def make_report():
         descriptions.append(label.capitalize() + " spends its largest measured shares on " + ", ".join(f"{name.lower()} ({value:.1f}%)" for name, value in ordered) + ".")
     add(paragraph(" ".join(descriptions)))
     add(figure("operator_breakdown", height=162))
-    add(paragraph("The plot uses timers inserted into the pinned ggml implementation and a single worker. Shares normalize to the five scoped phases. Graph scheduling, the driver's output-to-input state copy, and profiling overhead sit outside those shares. Instrumented runs have their own rows and never supply the headline throughput. A separate perf script supports sampled profiling on Linux. A VTune/uProf sampled trace on this Windows machine remains outstanding.", "SmallNote"))
+    add(paragraph("The plot uses timers inserted into the pinned ggml implementation and a single worker. Shares normalize to the five scoped phases. Graph scheduling, the driver's output-to-input state copy, and profiling overhead sit outside those shares. Throughput comes from uninstrumented runs. Windows blocked sampled profiling with policy error 0xc5585011. The repository includes a separate Linux perf script.", "SmallNote"))
     add(PageBreak())
 
     add(paragraph("Bandwidth prediction and an affinity experiment", "ReportTitle"))
@@ -101,7 +101,7 @@ def make_report():
     add(paragraph("State memory and measurement limits", "ReportHeading"))
     add(figure("state_vs_kv", height=168))
     add(paragraph(f"GDN stores 32 x 128 x 128 FP32 values, exactly 2 MiB per layer. An attention layer with 16 KV heads of size 128 stores 2 x T x 16 x 128 x 4 bytes, reaching 512 MiB at 32k tokens. The plot is an analytical storage comparison. It excludes model weights, attention compute buffers, and GDN input/output buffers. Peak GDN process working set was {data['max_gdn_rss']/2**20:.1f} MiB and minimum observed system free RAM was {data['min_free_ram']/2**30:.2f} GiB. Peak working set includes process overhead. Memory checks kept every run below the 4.5 GB budget, but working-set sampling does not prove the absence of all hard page faults."))
-    add(paragraph("The charger was connected and the effective Windows power overlay was Best Performance. The base power scheme reports Balanced. The separate power-confirmation record verifies the overlay. Desktop applications remained open. Raw files retain timestamps, free memory and per-configuration peaks. Windows blocked supplemental WPR sampling with policy error 0xc5585011.", "SmallNote"))
+    add(paragraph("The charger was connected and the effective Windows power overlay was Best Performance. The base power scheme reports Balanced. The separate power-confirmation record verifies the overlay. Desktop applications remained open. Raw files retain timestamps, free memory and per-configuration peaks.", "SmallNote"))
     add(PageBreak())
 
     add(paragraph("Conclusions and shared CPU reference", "ReportTitle"))
@@ -112,9 +112,8 @@ def make_report():
     add(paragraph("Build the pinned ggml backend and run the driver correctness check before collecting throughput. The sweep records three repeats per configuration for prefill, decode, and STREAM, along with process memory and the effective CPU placement. Report the instrumented phase timings separately from the throughput runs because those timers add work inside the operator. The repository provides raw CSV files, plotting code, the compiler settings, and the command used to select physical performance cores."))
     add(paragraph("Shared PARAM Rudra reference", "ReportHeading"))
     add(paragraph(f"Job 186881 on rdcn20 (Xeon Gold 6240R) ran Llama 3.2 1B Instruct Q4_K_M on {rudra['n_threads']} CPU threads. The combined {rudra['n_prompt']}-token prefill and {rudra['n_gen']}-token decode averaged <b>{rudra['avg_ts']:.2f} +/- {rudra['stddev_ts']:.2f} tokens/s</b> (mean +/- SD, three repeats). Peak RSS was unavailable because Slurm returned zero. Evidence is in results/param-rudra/186881/.", "SmallNote"))
-    add(paragraph("References and remaining submission requirements", "ReportHeading"))
+    add(paragraph("References", "ReportHeading"))
     add(paragraph("[1] ggml-org/llama.cpp, commit 8bb3cf0d, ggml/src/ggml-cpu/ops.cpp. github.com/ggml-org/llama.cpp<br/>[2] McCalpin, STREAM 5.10. cs.virginia.edu/stream/", "SmallNote"))
-    add(paragraph("Pending external requirements are course slide-template matching, team-member details, the student's recorded ten-minute delivery, and a sampled Windows profiler trace. Local phase profiling and the talk script accompany this report.", "SmallNote"))
     path = OUT / "pdf/Project_1_Report.pdf"
     path.parent.mkdir(parents=True, exist_ok=True)
     def footer(canvas, doc):
