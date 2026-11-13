@@ -6,8 +6,8 @@ Project 1, Option 5. This study measures the fused `GATED_DELTA_NET` operator in
 
 ## Results
 
-- In the two-second timing run, one decode step at 1,024 tokens of starting history took **454 µs on one P core** and **429 µs on six P cores**. Six-core prefill at 4,096 tokens was **3.52×** as fast as one core. [Timing data](results/gdn_long_repeats.csv)
-- One to 36 independent states changed mean latency from **563 to 535 µs** on one P core and **595 to 622 µs** on six. The latter difference was smaller than the 36-state repeat SD of 52 µs. [Working-set measurements](output/plots/working_sets.pdf)
+- In the two-second timing run, one decode step at 1,024 tokens of starting history took **454 µs on one P core** and **429 µs on six P cores**. The three histories do identical work, so pooling all nine decode repeats per core count gives **451 µs** and **391 µs**, a **1.15×** six-core speedup. Six-core prefill at 4,096 tokens was **3.52×** as fast as one core. [Timing data](results/gdn_long_repeats.csv)
+- One to 36 independent states changed mean latency from **563 to 535 µs** on one P core and **595 to 622 µs** on six. The latter difference was smaller than the 36-state repeat SD of 52 µs. The six-core result carries the conclusion: one core's copy bandwidth is about 30 GB/s for both L3- and DRAM-sized buffers, so one core cannot separate the two levels. [Working-set measurements](output/plots/working_sets.pdf)
 - The recurrent state occupies **2 MiB** per layer. The Qwen3-Next F16 attention KV cache reaches **64 MiB** per attention layer at 32,768 tokens. [Storage comparison](output/plots/state_vs_kv.pdf)
 - The correctness check covers 1,000 changing-input steps against an independent FP64 implementation and checks multi-token equivalence. [Correctness results](results/gdn_correctness.json)
 
@@ -60,7 +60,7 @@ The analytical attention comparison uses F16 KV and Qwen3-Next's two KV heads of
 
 The four-thread run, job **186891**, measured **92.77 ± 0.16 combined tokens/s** and **1.33 GiB peak RSS** on `rdcn20` (Xeon Gold 6240R). It used Llama 3.2 1B Instruct Q4_K_M, a 512-token prompt, a 128-token decode, and three repeats. The wrapper measures the benchmark child's peak RSS with Linux `getrusage`. [Run data and logs](results/param-rudra/186891/)
 
-Archived measurements are available for the [earlier PARAM Rudra job](results/param-rudra/186881/) and the [earlier laptop session](https://github.com/secureswim/cpu-inference-gdn-mamba3/tree/3bb2993/results).
+Six-core STREAM Triad measured 60.05 GB/s in the final session and 80.95 GB/s in the earlier one; the cause was not isolated. The P-core affinity comparison changed sign between sessions (+4.1% to −10.0%), so placement had no consistent effect. Archived measurements are available for the [earlier PARAM Rudra job](results/param-rudra/186881/) and the [earlier laptop session](https://github.com/secureswim/cpu-inference-gdn-mamba3/tree/3bb2993/results).
 
 Use `scripts/run_shared_reference.sh` inside a CPU allocation with `LLAMA_SOURCE`, `MODEL`, and `THREADS` set. The original GCC 8.5 build linked with `-DCMAKE_CXX_STANDARD_LIBRARIES:STRING=-lstdc++fs`.
 

@@ -49,7 +49,7 @@ def desktop_apps():
     return sorted(visible), sorted(set(processes.values()) - visible)
 
 
-def require_clean_conditions():
+def require_clean_conditions(check_background=False):
     if os.name != "nt":
         raise RuntimeError("The clean rerun checks are specific to the assignment laptop")
     hardware = dict(line.split("=", 1) for line in execute([BIN / f"machine{SUFFIX}"]).splitlines())
@@ -59,6 +59,8 @@ def require_clean_conditions():
     apps, background = desktop_apps()
     if apps:
         raise RuntimeError("Close open browser and IDE windows: " + ", ".join(apps))
+    if check_background and background:
+        raise RuntimeError("End leftover browser and IDE processes: " + ", ".join(background))
     return background
 
 
@@ -163,7 +165,7 @@ def measure_stream(cpus):
             print(f"STREAM threads={threads}", flush=True)
 
 
-def measure_gdn(configs, clean, minimum_seconds=0.35, filename="gdn_raw.csv"):
+def measure_gdn(configs, clean, minimum_seconds=0.35, filename="gdn_raw.csv", check_background=False):
     with (RESULTS / filename).open("w", newline="") as file:
         writer = csv.writer(file)
         writer.writerow(GDN_COLUMNS)
@@ -177,7 +179,7 @@ def measure_gdn(configs, clean, minimum_seconds=0.35, filename="gdn_raw.csv"):
                 order.extend((config, repeat) for config in round_configs)
         for (mode, length, threads, pinned), repeat in order:
             if clean:
-                require_clean_conditions()
+                require_clean_conditions(check_background)
             command = [BIN / f"gdn{SUFFIX}", "bench", threads, mode, length, pinned]
             output = execute(command + ([1, minimum_seconds] if clean else []))
             rows = list(csv.reader(output.splitlines()))
@@ -193,22 +195,24 @@ def measure_gdn(configs, clean, minimum_seconds=0.35, filename="gdn_raw.csv"):
             print(f"GDN {mode} length={length} threads={threads} pinned={pinned}", flush=True)
 
 
-def long_repeats():
+def long_repeats(check_background=False):
     RESULTS.mkdir(parents=True, exist_ok=True)
-    background = require_clean_conditions()
+    background = require_clean_conditions(check_background)
     hardware = dict(line.split("=", 1) for line in execute([BIN / f"machine{SUFFIX}"]).splitlines())
     cores = len([mask for mask in hardware["p_core_masks"].split(",") if mask])
     configs = [("decode", length, n, 1) for n in (1, cores) for length in (1024, 8192, 32768)]
     configs += [("prefill", length, cores, 1) for length in (512, 4096, 32768)]
     configs.append(("prefill", 4096, 1, 1))
     start = time.strftime("%Y-%m-%dT%H:%M:%S%z")
-    measure_gdn(configs, clean=True, minimum_seconds=2.0, filename="gdn_long_repeats.csv")
-    require_clean_conditions()
+    measure_gdn(configs, clean=True, minimum_seconds=2.0, filename="gdn_long_repeats.csv",
+                check_background=check_background)
+    require_clean_conditions(check_background)
     metadata = {
         "start": start, "end": time.strftime("%Y-%m-%dT%H:%M:%S%z"),
         "cpu": hardware["cpu"], "p_core_count": cores, "repeats": 3, "minimum_seconds": 2.0,
         "effective_power_overlay": power_overlay(), "ac_power_checks_passed": True,
         "browser_and_ide_window_checks_passed": True, "background_browser_ide_processes_at_start": background,
+        "background_browser_ide_processes_checked_each_repeat": check_background,
         "run_order_seed": 2023522,
     }
     (RESULTS / "long_repeats_environment.json").write_text(json.dumps(metadata, indent=2) + "\n")
@@ -267,14 +271,18 @@ if __name__ == "__main__":
                         help="Verify laptop conditions, interleave repeats, and collect working-set and ceiling data")
     parser.add_argument("--long-repeats", action="store_true",
                         help="Collect a separate AC-powered two-second timing study")
+    parser.add_argument("--check-background-apps", action="store_true",
+                        help="For the two-second study, also require browser and IDE background processes to be stopped")
     parser.add_argument("--output", type=Path, default=RESULTS)
     args = parser.parse_args()
     if args.clean_rerun and (args.allow_battery or args.stream_only):
         parser.error("--clean-rerun requires the full AC-powered sweep")
     if args.long_repeats and (args.clean_rerun or args.allow_battery or args.stream_only):
         parser.error("--long-repeats is a separate AC-powered timing study")
+    if args.check_background_apps and not args.long_repeats:
+        parser.error("--check-background-apps applies to --long-repeats")
     RESULTS = args.output.resolve()
     if args.long_repeats:
-        long_repeats()
+        long_repeats(args.check_background_apps)
     else:
         sweep(args.allow_battery, args.stream_only, args.clean_rerun)

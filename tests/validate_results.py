@@ -88,5 +88,7 @@ if (ROOT / "results/gdn_long_repeats.csv").exists():
         assert 0 < float(row["peak_rss_bytes"]) < 4.5e9 and float(row["free_ram_bytes"]) > 1e9
     follow_up_env = json.loads((ROOT / "results/long_repeats_environment.json").read_text())
     assert follow_up_env["ac_power_checks_passed"] and follow_up_env["browser_and_ide_window_checks_passed"]
+    if follow_up_env.get("background_browser_ide_processes_checked_each_repeat"):
+        assert not follow_up_env["background_browser_ide_processes_at_start"]
 print(f"Validated {len(gdn)} GDN and {len(stream)} STREAM rows, supplemental study when present, "
       "four report pages and 600 seconds of talk timings.")
