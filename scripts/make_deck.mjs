@@ -38,7 +38,10 @@ const fmt = n => Math.round(n).toLocaleString('en-US');
 const rate = row => fmt(row.mean) + ' ± ' + fmt(row.sd);
 const delta = (a, b) => (100 * (a.mean / b.mean - 1)).toFixed(1);
 const mib = bytes => bytes / 2 ** 20;
-const step = n => 1e6 / sample('decode', 1024, n).mean;
+const twoSecond = (mode, length, n) => longer?.measurements.find(row =>
+  row.mode === mode && Number(row.length) === length && Number(row.threads) === n);
+const timing = (mode, length, n = cores) => longer ? twoSecond(mode, length, n) : sample(mode, length, n);
+const headlineStep = n => 1e6 / timing('decode', 1024, n).mean;
 const rotation = (n, states) => study.measurements.find(row => row.threads === n && row.states === states);
 const historyDelta = Math.max(...study.history.map(row => Number(row.max_abs_from_1024)));
 const opSource = 'https://github.com/ggml-org/llama.cpp/blob/' + env.llama_commit + '/ggml/src/ggml-cpu/ops.cpp';
@@ -124,22 +127,25 @@ function chart(s, type, categories, series, {
   return c;
 }
 
-function lengthChart(s, mode, lengths, xTitle, max) {
-  chart(s, 'line', lengths.map(fmt), [1, cores].map(n => ({
+function lengthChart(s, mode, lengths, xTitle) {
+  const workers = longer && mode === 'prefill' ? [cores] : [1, cores];
+  chart(s, 'line', lengths.map(fmt), workers.map(n => ({
     name: n === 1 ? '1 P core' : n + ' P cores',
-    values: lengths.map(length => sample(mode, length, n).mean),
-  })), { xTitle, yTitle: 'Operator tokens/s', max });
+    values: lengths.map(length => timing(mode, length, n).mean),
+  })), { xTitle, yTitle: 'Operator tokens/s' });
 }
 
 {
   const s = slide('Gated DeltaNet on a laptop CPU', 25,
-    'At one thousand twenty-four tokens of starting history, one decode step took about ' + fmt(step(1)) + ' microseconds on one performance core and ' + fmt(step(cores)) + ' on six. That measures one recurrent layer, including the driver state copy. We then changed the number of recurrent states to test how the memory footprint affects latency.',
+    'At one thousand twenty-four tokens of starting history, one decode step took about ' + fmt(headlineStep(1)) + ' microseconds on one performance core and ' + fmt(headlineStep(cores)) + ' on six. Each step includes the state copy.',
     'Project 1 assignment brief, Option 5. Repository README and results/.', { cover: true });
   text(s, 'PROJECT 1  /  OPTION 5  /  GROUP 4', 72, 73, 820, 36, { size: 22, color: mint, bold: true });
   text(s, 'Gated DeltaNet\non a laptop CPU', 66, 158, 1120, 240,
     { size: 89, color: paper, bold: true });
-  text(s, fmt(step(1)) + ' µs on 1 P core  /  ' + fmt(step(cores)) + ' µs on 6 P cores per decode step', 72, 440, 1110, 65,
+  text(s, fmt(headlineStep(1)) + ' µs on 1 P core  /  ' + fmt(headlineStep(cores)) + ' µs on 6 P cores per decode step', 72, 440, 1110, 65,
     { size: 32, color: mint });
+  if (longer) text(s, 'Two-second repeats at 1,024 tokens of starting history', 72, 498, 1080, 40,
+    { size: 22, color: paper });
   text(s, 'Siddharth Kumar (2023522)\nVaishnavi Srivastava (2023574)', 72, 570, 1050, 100,
     { size: 28, color: paper });
 }
@@ -168,14 +174,14 @@ function lengthChart(s, mode, lengths, xTitle, max) {
 
 {
   const s = slide('Laptop setup and timing protocol', 40,
-    'The laptop has six performance cores, eight efficiency cores and two low-power efficiency cores. The affinity mask uses one hardware thread per performance core. We sweep one through six workers with a CPU-only AVX2 and FMA build. Each configuration has a warmup and three timed repeats. A seeded order interleaves configurations. Prefill processes chunks of one hundred twenty-eight tokens, and decode restores its starting history before timing. The rerun used AC power and Best Performance with the browser and IDE windows closed.',
+    'The laptop has six performance cores, eight efficiency cores and two low-power efficiency cores. The affinity mask uses one hardware thread per performance core. We sweep one through six workers with a CPU-only AVX2 and FMA build. Each configuration has a warmup and three timed repeats. A seeded order interleaves configurations. Prefill processes chunks of one hundred twenty-eight tokens, and decode restores its starting history before timing. The laptop used AC power and Best Performance with the browser and IDE windows closed.',
     'results/hardware.txt, results/environment.json, results/power-confirmation.json, results/build-info.txt');
   text(s, 'Intel Core Ultra 9 185H', 63, 141, 1150, 64, { size: 41, bold: true, color: teal });
   label(s, 'Hardware', 66, 251, 470);
   text(s, '6 P-cores · 8 E-cores · 2 low-power E-cores\n32 GB-class RAM · 24 MiB shared L3\nP-core cache 48 KiB L1D · 64 KiB L1I · 2 MiB L2\nAVX2/FMA build · AVX-512 unavailable', 64, 298, 565, 193, { size: 23 });
   label(s, 'Timing', 663, 251, 470);
   text(s, '1–6 pinned P-core workers\nWarmup, then 3 repeats ≥ 0.35 s each\n128-token prefill chunks\nAC power · Windows Best Performance', 661, 298, 548, 193, { size: 23 });
-  foot(s, 'Browser and IDE windows closed. Chrome and Edge processes absent at startup.');
+  foot(s, 'AC power and Windows Best Performance. Browser and IDE windows closed.');
 }
 
 {
@@ -193,51 +199,47 @@ function lengthChart(s, mode, lengths, xTitle, max) {
 }
 
 {
-  const one = sample('decode', 1024, 1);
-  const six = sample('decode', 1024);
+  const one = timing('decode', 1024, 1);
+  const six = timing('decode', 1024);
   const s = slide('Decode speed vs. starting context', 45,
-    'Each point times single-token calls after preparing the context shown. Every history uses the same seeded block of one hundred twenty-eight tokens and ends at the same block boundary. The maximum difference between the prepared states was ' + (historyDelta === 0 ? 'zero' : historyDelta.toExponential(2)) + '. The tensor sizes and work per step stay fixed. The timing spread and the interleaved run order matter when interpreting differences. At one thousand twenty-four history, the one-core measurement is ' + fmt(step(1)) + ' microseconds per step. Six cores reached ' + rate(six) + ' tokens per second.',
-    'results/gdn_raw.csv, results/summary.json, output/plots/length_sweeps.pdf');
+    'Each point times single-token calls after preparing the context shown. Every history uses the same seeded block of one hundred twenty-eight tokens and ends at the same block boundary. The maximum difference between the prepared states was ' + historyDelta.toExponential(2) + '. The tensor sizes and work per step stay fixed. At one thousand twenty-four history, the one-core measurement is ' + fmt(headlineStep(1)) + ' microseconds per step. Six cores reached ' + rate(six) + ' tokens per second.',
+    'results/gdn_long_repeats.csv, results/summary.json, output/plots/length_sweeps.pdf');
   lengthChart(s, 'decode', [1024, 8192, 32768], 'Starting context (tokens)');
   stat(s, (1000 / one.mean).toFixed(2) + ' ms', 'Per token at 1,024 context\non one P core', 860, 180);
   label(s, '6 P cores at 32,768 tokens', 865, 390);
-  text(s, rate(sample('decode', 32768)), 861, 433, 350, 60, { size: 35, bold: true, color: rust });
+  text(s, rate(timing('decode', 32768)), 861, 433, 350, 60, { size: 35, bold: true, color: rust });
   text(s, 'tokens/s', 865, 484, 300, 34, { size: 21, color: muted });
   foot(s, 'Largest elementwise difference between prepared states was ' +
     (historyDelta === 0 ? 'zero.' : historyDelta.toExponential(2) + '.'));
 }
 
 {
-  const fourK = sample('prefill', 4096);
+  const fourK = timing('prefill', 4096);
   const s = slide('Prefill speed vs. prompt length', 40,
-    'Prefill processes complete prompts of five hundred twelve, four thousand ninety-six and thirty-two thousand seven hundred sixty-eight tokens. The driver starts each full prompt from zero state and uses fixed chunks of one hundred twenty-eight. The same seeded block repeats across chunks. At four thousand ninety-six tokens, six P cores reach ' + rate(fourK) + ' tokens per second across three repeats. At the longest prompt the six-core mean is ' + fmt(sample('prefill', 32768).mean) + '.',
-    'results/gdn_raw.csv, results/summary.json, output/plots/length_sweeps.pdf');
+    'Prefill processes complete prompts of five hundred twelve, four thousand ninety-six and thirty-two thousand seven hundred sixty-eight tokens. The driver starts each full prompt from zero state and uses fixed chunks of one hundred twenty-eight. The same seeded block repeats across chunks. At four thousand ninety-six tokens, six P cores reach ' + rate(fourK) + ' tokens per second across three repeats. At the longest prompt the six-core mean is ' + fmt(timing('prefill', 32768).mean) + '.',
+    'results/gdn_long_repeats.csv, results/summary.json, output/plots/length_sweeps.pdf');
   lengthChart(s, 'prefill', [512, 4096, 32768], 'Prompt length (tokens)');
   stat(s, fmt(fourK.mean), 'tokens/s at 4,096 tokens\non six P cores', 860, 180);
   label(s, 'Sample SD at this point', 865, 391);
   text(s, '±' + fmt(fourK.sd) + ' tokens/s', 861, 435, 350, 60, { size: 31, bold: true, color: rust });
-  foot(s, 'Three repeats per point. Chart shows means. Every prefill prompt starts from zero state.');
+  foot(s, 'Three repeats per point. Every prefill prompt starts from zero state.');
 }
 
 {
   const speedup = (mode, length, n) => sample(mode, length, n).mean / sample(mode, length, 1).mean;
-  const followUp = (mode, length, n) => longer.measurements.find(row =>
-    row.mode === mode && Number(row.length) === length && Number(row.threads) === n).mean;
-  const longPrefill = longer ? followUp('prefill', 4096, cores) / followUp('prefill', 4096, 1) : null;
-  const longDecode = longer ? followUp('decode', 1024, cores) / followUp('decode', 1024, 1) : null;
+  const longPrefill = timing('prefill', 4096).mean / timing('prefill', 4096, 1).mean;
+  const longDecode = timing('decode', 1024).mean / timing('decode', 1024, 1).mean;
   const s = slide('Thread scaling from one to six P cores', 40,
-    'Each series is normalized to its own one-core rate. In the short sweep, six-core prefill is ' + speedup('prefill', 4096, cores).toFixed(2) + ' times its one-core rate. Decode is ' + speedup('decode', 1024, cores).toFixed(2) + ' times. Prefill spreads call costs across one hundred twenty-eight tokens. ' +
-      (longer ? 'With two-second repeats, the speedups were ' + longPrefill.toFixed(2) + ' for prefill and ' + longDecode.toFixed(2) + ' for decode.' : ''),
+    'The chart shows the full thread sweep, using a zero point three five second minimum at every worker count. Each series is normalized to its one-core rate. At the one- and six-core settings, two-second timing gives speedups of ' + longPrefill.toFixed(2) + ' for prefill and ' + longDecode.toFixed(2) + ' for decode. Prefill spreads call costs across one hundred twenty-eight tokens.',
     'results/gdn_raw.csv, results/gdn_long_repeats.csv, results/summary.json, output/plots/thread_scaling.pdf');
   chart(s, 'line', threads.map(String), [
     { name: 'Decode · 1,024 history', values: threads.map(n => speedup('decode', 1024, n)) },
     { name: 'Prefill · 4,096 prompt', values: threads.map(n => speedup('prefill', 4096, n)) },
     { name: 'Ideal linear', values: threads },
   ], { xTitle: 'Physical P cores', yTitle: 'Speedup over 1 P core', number: '0.0"×"', max: 6 });
-  stat(s, speedup('prefill', 4096, cores).toFixed(2) + '×', 'Prefill at six P cores', 860, 181, 340, rust);
-  stat(s, speedup('decode', 1024, cores).toFixed(2) + '×', 'Decode at six P cores', 860, 376);
-  if (longer) foot(s, 'Two-second follow-up at six P cores: ' + longPrefill.toFixed(2) + '× prefill and ' +
-    longDecode.toFixed(2) + '× decode. Chart shows the full short sweep.');
+  stat(s, longPrefill.toFixed(2) + '×', 'Prefill at six P cores', 860, 181, 340, rust);
+  stat(s, longDecode.toFixed(2) + '×', 'Decode at six P cores', 860, 376);
+  foot(s, 'Callouts use the two-second run. The full thread sweep uses a 0.35-second minimum.');
 }
 
 {
@@ -332,7 +334,7 @@ function lengthChart(s, mode, lengths, xTitle, max) {
 
 {
   const s = slide('Shared PARAM Rudra CPU reference', 40,
-    'The course reference used Llama 3.2 1B Instruct Q4 K M on four Xeon Gold CPU threads. The rerun delivered ' + rudra.avg_ts.toFixed(2) + ' combined tokens per second for a five hundred twelve token prompt and one hundred twenty-eight decode tokens. The benchmark process reached ' + (rudraMemory.peak_rss_bytes / 2 ** 30).toFixed(2) + ' gibibytes of peak resident memory. The full-model reference has a different scope from our layer study. The laptop results show stable state size and stronger scaling in prefill than in single-token decode.',
+    'The PARAM Rudra run used Llama 3.2 1B Instruct Q4 K M on four Xeon Gold CPU threads. It delivered ' + rudra.avg_ts.toFixed(2) + ' combined tokens per second for a five hundred twelve token prompt and one hundred twenty-eight decode tokens. The benchmark process reached ' + (rudraMemory.peak_rss_bytes / 2 ** 30).toFixed(2) + ' gibibytes of peak resident memory. The full-model reference has a different scope from our layer study. The laptop results show stable state size and stronger scaling in prefill than in single-token decode.',
     'results/param-rudra/186891/reference.json, peak-rss.json, hardware.txt and slurm-accounting.txt.');
   stat(s, rudra.avg_ts.toFixed(2) + ' ± ' + rudra.stddev_ts.toFixed(2),
     'Combined tokens/s, mean ± sample SD', 64, 152, 790, teal, 81);

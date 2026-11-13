@@ -166,14 +166,19 @@ def analyze():
     max_thread = max(threads)
     measured = lambda mode, length, t=max_thread, pin=1: summary[(mode, str(length), str(t), str(pin))]
     stream_summary = group([r for r in stream if r["kernel"] == "Triad"], ("threads",), "best_MB_s")
+    keys = ("mode", "length", "threads", "pinned")
+    longer = (group(read("gdn_long_repeats.csv"), keys, "tokens_s")
+              if (RESULTS / "gdn_long_repeats.csv").exists() else None)
 
     fig, axes = plt.subplots(1, 2, figsize=(10.2, 3.1))
     for ax, mode, lengths, label in zip(axes, ("decode", "prefill"),
                                       ((1024, 8192, 32768), (512, 4096, 32768)),
                                       ("Starting context (tokens)", "Prompt length (tokens)")):
         for j, t in enumerate((1, max_thread)):
-            data = [measured(mode, length, t) for length in lengths]
-            ax.errorbar(lengths, [x["mean"] for x in data], yerr=[x["sd"] for x in data],
+            points = [(length, longer.get((mode, str(length), str(t), "1"))
+                       if longer else measured(mode, length, t)) for length in lengths]
+            lengths_measured, data = zip(*((length, row) for length, row in points if row))
+            ax.errorbar(lengths_measured, [x["mean"] for x in data], yerr=[x["sd"] for x in data],
                         marker="o", capsize=4, label=f"{t} P core{'s' if t > 1 else ''}", color=COLORS[j])
         ax.set(xlabel=label, ylabel="Operator tokens/s", title=mode.capitalize(), xscale="log", xticks=lengths)
         ax.set_xticklabels([f"{x:,}" for x in lengths])
@@ -249,9 +254,7 @@ def analyze():
     supplemental = [RESULTS / name for name in ("history_states.csv", "working_sets.csv", "ceilings.csv")]
     if any(file.exists() for file in supplemental):
         exported["working_set_study"] = working_set_analysis(max_thread, logical_bytes, stream_summary)
-    if (RESULTS / "gdn_long_repeats.csv").exists():
-        keys = ("mode", "length", "threads", "pinned")
-        longer = group(read("gdn_long_repeats.csv"), keys, "tokens_s")
+    if longer:
         exported["long_repeat_study"] = {
             "measurements": [{**dict(zip(keys, key)), **value} for key, value in longer.items()],
             "six_core_median_cv": {

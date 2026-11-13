@@ -4,7 +4,7 @@
 
 0:00 to 0:25
 
-At one thousand twenty-four tokens of starting history, one decode step took about 487 microseconds on one performance core and 482 on six. That measures one recurrent layer, including the driver state copy. We then changed the number of recurrent states to test how the memory footprint affects latency.
+At one thousand twenty-four tokens of starting history, one decode step took about 454 microseconds on one performance core and 429 on six. Each step includes the state copy.
 
 ## Slide 2 - The Gated DeltaNet recurrence
 
@@ -16,7 +16,7 @@ Read these equations for one value head and one token. M sub t minus one is the 
 
 1:20 to 2:00
 
-The laptop has six performance cores, eight efficiency cores and two low-power efficiency cores. The affinity mask uses one hardware thread per performance core. We sweep one through six workers with a CPU-only AVX2 and FMA build. Each configuration has a warmup and three timed repeats. A seeded order interleaves configurations. Prefill processes chunks of one hundred twenty-eight tokens, and decode restores its starting history before timing. The rerun used AC power and Best Performance with the browser and IDE windows closed.
+The laptop has six performance cores, eight efficiency cores and two low-power efficiency cores. The affinity mask uses one hardware thread per performance core. We sweep one through six workers with a CPU-only AVX2 and FMA build. Each configuration has a warmup and three timed repeats. A seeded order interleaves configurations. Prefill processes chunks of one hundred twenty-eight tokens, and decode restores its starting history before timing. The laptop used AC power and Best Performance with the browser and IDE windows closed.
 
 ## Slide 4 - Correctness against an FP64 reference
 
@@ -28,19 +28,19 @@ We checked the same fused ggml operator used in the timing runs. The scalar refe
 
 2:45 to 3:30
 
-Each point times single-token calls after preparing the context shown. Every history uses the same seeded block of one hundred twenty-eight tokens and ends at the same block boundary. The maximum difference between the prepared states was 5.96e-8. The tensor sizes and work per step stay fixed. The timing spread and the interleaved run order matter when interpreting differences. At one thousand twenty-four history, the one-core measurement is 487 microseconds per step. Six cores reached 2,076 ± 460 tokens per second.
+Each point times single-token calls after preparing the context shown. Every history uses the same seeded block of one hundred twenty-eight tokens and ends at the same block boundary. The maximum difference between the prepared states was 5.96e-8. The tensor sizes and work per step stay fixed. At one thousand twenty-four history, the one-core measurement is 454 microseconds per step. Six cores reached 2,330 ± 404 tokens per second.
 
 ## Slide 6 - Prefill speed vs. prompt length
 
 3:30 to 4:10
 
-Prefill processes complete prompts of five hundred twelve, four thousand ninety-six and thirty-two thousand seven hundred sixty-eight tokens. The driver starts each full prompt from zero state and uses fixed chunks of one hundred twenty-eight. The same seeded block repeats across chunks. At four thousand ninety-six tokens, six P cores reach 14,052 ± 4,233 tokens per second across three repeats. At the longest prompt the six-core mean is 14,524.
+Prefill processes complete prompts of five hundred twelve, four thousand ninety-six and thirty-two thousand seven hundred sixty-eight tokens. The driver starts each full prompt from zero state and uses fixed chunks of one hundred twenty-eight. The same seeded block repeats across chunks. At four thousand ninety-six tokens, six P cores reach 17,607 ± 2,249 tokens per second across three repeats. At the longest prompt the six-core mean is 18,326.
 
 ## Slide 7 - Thread scaling from one to six P cores
 
 4:10 to 4:50
 
-Each series is normalized to its own one-core rate. In the short sweep, six-core prefill is 2.99 times its one-core rate. Decode is 1.01 times. Prefill spreads call costs across one hundred twenty-eight tokens. With two-second repeats, the speedups were 3.52 for prefill and 1.06 for decode.
+The chart shows the full thread sweep, using a zero point three five second minimum at every worker count. Each series is normalized to its one-core rate. At the one- and six-core settings, two-second timing gives speedups of 3.52 for prefill and 1.06 for decode. Prefill spreads call costs across one hundred twenty-eight tokens.
 
 ## Slide 8 - Two state copies with different costs
 
@@ -76,4 +76,4 @@ The code performs about 3.67 million floating-point operations per step, excludi
 
 9:20 to 10:00
 
-The course reference used Llama 3.2 1B Instruct Q4 K M on four Xeon Gold CPU threads. The rerun delivered 92.77 combined tokens per second for a five hundred twelve token prompt and one hundred twenty-eight decode tokens. The benchmark process reached 1.33 gibibytes of peak resident memory. The full-model reference has a different scope from our layer study. The laptop results show stable state size and stronger scaling in prefill than in single-token decode.
+The PARAM Rudra run used Llama 3.2 1B Instruct Q4 K M on four Xeon Gold CPU threads. It delivered 92.77 combined tokens per second for a five hundred twelve token prompt and one hundred twenty-eight decode tokens. The benchmark process reached 1.33 gibibytes of peak resident memory. The full-model reference has a different scope from our layer study. The laptop results show stable state size and stronger scaling in prefill than in single-token decode.

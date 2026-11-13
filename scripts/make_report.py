@@ -46,10 +46,9 @@ def make_report():
     data = json.loads((ROOT / "results/summary.json").read_text())
     env = json.loads((ROOT / "results/environment.json").read_text())
     gcheck = json.loads((ROOT / "results/gdn_correctness.json").read_text(encoding="utf-8-sig"))
-    rudra, = json.loads((ROOT / "results/param-rudra/186881/reference.json").read_text())
-    rudra_rerun = ROOT / "results/param-rudra/186891"
-    rerun, = json.loads((rudra_rerun / "reference.json").read_text())
-    rudra_rss = json.loads((rudra_rerun / "peak-rss.json").read_text())["peak_rss_bytes"]
+    rudra_dir = ROOT / "results/param-rudra/186891"
+    rudra, = json.loads((rudra_dir / "reference.json").read_text())
+    rudra_rss = json.loads((rudra_dir / "peak-rss.json").read_text())["peak_rss_bytes"]
     threads = data["max_threads"]
     study = data["working_set_study"]
     profile_path = ROOT / "results/profiles/sampled.json"
@@ -65,15 +64,20 @@ def make_report():
         return f"{row['mean']:,.0f} +/- {row['sd']:,.0f}"
 
     latency1 = 1e6 / gd("decode", 1024, 1)["mean"]
-    latency6 = 1e6 / gd("decode", 1024)["mean"]
+    follow_up = data.get("long_repeat_study")
+
+    def longer(mode, length, n):
+        return next(r for r in follow_up["measurements"] if
+                    (r["mode"], int(r["length"]), int(r["threads"])) == (mode, length, n))
+
+    if follow_up:
+        long_latency1 = 1e6 / longer("decode", 1024, 1)["mean"]
+        long_latency6 = 1e6 / longer("decode", 1024, threads)["mean"]
+        prefill_speedup = longer("prefill", 4096, threads)["mean"] / longer("prefill", 4096, 1)["mean"]
     six = study["ceilings"][-1]
     bw = six["dram_stream"]
-    # Six-worker Triad mean from results/summary.json at revision 3bb2993.
-    prior_bw = 80.9549333333333
     predicted = bw * 1e9 / data["gdn_logical_bytes"]
-    prior_prediction = prior_bw * 1e9 / data["gdn_logical_bytes"]
     pinned = gd("decode", 1024)["mean"]
-    unpinned = gd("decode", 1024, pin=0)["mean"]
     max_history = max(float(row["max_abs_from_1024"]) for row in study["history"])
     max_changed = max(int(row["changed_elements"]) for row in study["history"])
     history_note = ("The resulting snapshots matched bit for bit at both worker counts." if max_changed == 0
@@ -82,7 +86,11 @@ def make_report():
     add = story.append
     add(paragraph("Gated DeltaNet decode on a laptop CPU", "ReportTitle"))
     add(paragraph("Project 1, Option 5, Group 4<br/>Siddharth Kumar (2023522) and Vaishnavi Srivastava (2023574)", "ReportHeading"))
-    add(paragraph(f"<b>One decode step.</b> At 1,024 tokens of starting history, one Gated DeltaNet layer took <b>{latency1:.0f} µs per token on one P core</b> and <b>{latency6:.0f} µs on {threads} P cores</b>, calculated as the reciprocal of mean throughput. The scope is a batch-one FP32 operator with synthetic Qwen3-Next shapes, including graph execution and the driver state carry."))
+    if follow_up:
+        add(paragraph(f"<b>Two-second timing run.</b> At 1,024 tokens of starting history, one Gated DeltaNet layer took <b>{long_latency1:.0f} µs per decode step on one P core</b> and <b>{long_latency6:.0f} µs on {threads} P cores</b>. Six-core prefill at 4,096 tokens was <b>{prefill_speedup:.2f}x</b> as fast as one core. Latencies are reciprocals of mean throughput for a batch-one FP32 layer, including the driver state copy."))
+    else:
+        latency6 = 1e6 / pinned
+        add(paragraph(f"<b>One decode step.</b> At 1,024 tokens of starting history, one Gated DeltaNet layer took <b>{latency1:.0f} µs per token on one P core</b> and <b>{latency6:.0f} µs on {threads} P cores</b>, calculated as the reciprocal of mean throughput. The batch-one FP32 measurement includes graph execution and the driver state copy."))
     add(paragraph("Hardware and setup", "ReportHeading"))
     add(table([["Hardware / build", "Recorded configuration"],
                ["CPU and memory", "Intel Core Ultra 9 185H, 6 P-cores, 8 E-cores, 2 low-power E-cores. 31.44 GiB usable RAM."],
@@ -94,35 +102,32 @@ def make_report():
     app_note = ("Browser and IDE windows were closed, with no Chrome or Edge processes at startup. The chat remained open."
                 if env.get("background_apps_closed") and not env.get("background_browser_ide_processes_at_start")
                 else env.get("background_note", "Desktop app closure was not verified."))
-    add(paragraph(f"The interleaved sweep ran on AC power in Best Performance mode. {escape(app_note)} Each configuration had a warmup and three repeats of at least 0.35 s. Prefill starts from zero and uses 128-token chunks. Decode advances the state through the starting history before timing. Error bars show sample SD."))
+    add(paragraph(f"The laptop ran on AC power in Best Performance mode. The full thread sweep used three repeats of at least 0.35 s. {'The length plots use three repeats of at least 2 s per setting.' if follow_up else escape(app_note)} Prefill starts from zero and uses 128-token chunks. Decode advances the state through the starting history before timing. Error bars show sample SD."))
     add(figure("length_sweeps", height=155))
-    add(paragraph(f"<b>History control.</b> All lengths end at the same phase of a repeated 128-token block. {history_note} These runs test fixed work per decode step. The earlier six-worker slowdown at 32k did not recur in the clean rerun."))
-    short_history = [gd("decode", length, 1)["mean"] for length in (8192, 32768)]
-    add(paragraph(f"The repeated block uses normalized keys and a decay of exp(-0.05) = 0.951, which damps differences from earlier states. Despite essentially identical starting work, the one-core means at 8k and 32k were {short_history[0]:,.0f} and {short_history[1]:,.0f} tokens/s, about {(max(short_history)/min(short_history)-1):.0%} apart. This is observed run-condition variation in the short sweep, so the context plot does not establish a length trend."))
+    add(paragraph(f"<b>History control.</b> All lengths end at the same phase of a repeated 128-token block. {history_note} The normalized keys and decay of exp(-0.05) = 0.951 damp differences from earlier states. The work per decode step is fixed across the tested histories."))
     add(PageBreak())
 
     add(paragraph("Thread scaling and operator costs", "ReportTitle"))
     sweep = [["Mode", "Length", "1 P core, tokens/s", f"{threads} P cores, tokens/s"]]
     for mode, lengths in (("decode", (1024, 8192, 32768)), ("prefill", (512, 4096, 32768))):
         for length in lengths:
-            sweep.append([mode, f"{length:,}", measurement(gd(mode, length, 1)), measurement(gd(mode, length))])
+            one_core = (measurement(longer(mode, length, 1))
+                        if follow_up and (mode == "decode" or length == 4096)
+                        else "—" if follow_up else measurement(gd(mode, length, 1)))
+            six_core = longer(mode, length, threads) if follow_up else gd(mode, length)
+            sweep.append([mode, f"{length:,}", one_core, measurement(six_core)])
     add(table(sweep, [62, 66, 191, 191]))
-    add(paragraph(f"Six-worker speedup was {pinned/gd('decode',1024,1)['mean']:.2f}x for decode at 1k and {gd('prefill',4096)['mean']/gd('prefill',4096,1)['mean']:.2f}x for prefill at 4k. Prefill shares graph dispatch and initial state copying across a 128-token chunk. Single-token decode pays those costs on each graph call."))
-    follow_up = data.get("long_repeat_study")
     if follow_up:
-        def longer(mode, length, n):
-            return next(r for r in follow_up["measurements"] if
-                        (r["mode"], int(r["length"]), int(r["threads"])) == (mode, length, n))
-
         cv = follow_up["six_core_median_cv"]
-        prefill_speedup = longer("prefill", 4096, threads)["mean"] / longer("prefill", 4096, 1)["mean"]
         decode_speedup = longer("decode", 1024, threads)["mean"] / longer("decode", 1024, 1)["mean"]
         long_history = [longer("decode", length, 1)["mean"] for length in (1024, 8192, 32768)]
-        add(paragraph(f"<b>Two-second follow-up.</b> Three interleaved repeats at ten settings gave a median six-core relative SD of {cv['long']:.0%}, versus {cv['short']:.0%} in the short sweep. Six-core speedups were {prefill_speedup:.2f}x for 4k prefill and {decode_speedup:.2f}x for 1k decode. One-core decode means were within {(max(long_history)/min(long_history)-1):.1%} across histories. The table and plot show the full short sweep."))
+        add(paragraph(f"The table shows two-second repeats. Dashes mark settings outside that timing run. Six-core speedups were {prefill_speedup:.2f}x for 4k prefill and {decode_speedup:.2f}x for 1k decode. One-core decode means were within {(max(long_history)/min(long_history)-1):.1%} across histories. Median six-core relative SD was {cv['long']:.0%}. The thread-scaling plot uses the 0.35-second minimum protocol for all worker counts."))
         follow_up_env = json.loads((ROOT / "results/long_repeats_environment.json").read_text())
         background = follow_up_env["background_browser_ide_processes_at_start"]
         if background:
-            add(paragraph(escape("Browser and IDE windows were closed for the follow-up. Background processes at startup included " + ", ".join(background) + "."), "SmallNote"))
+            add(paragraph(escape("Browser and IDE windows were closed for the two-second timing run. Background processes at startup included " + ", ".join(background) + "."), "SmallNote"))
+        elif follow_up_env.get("background_browser_ide_processes_checked_each_repeat"):
+            add(paragraph("Browser and IDE processes were absent at startup, before each repeat, and after the run.", "SmallNote"))
     add(figure("thread_scaling", height=139))
     add(paragraph("Profiling the two state copies", "ReportHeading"))
     descriptions = []
@@ -148,7 +153,6 @@ def make_report():
     a, b = rotating(1, 1)["latency_us"]["mean"], rotating(1, 36)["latency_us"]["mean"]
     c, d = rotating(threads, 1)["latency_us"]["mean"], rotating(threads, 36)["latency_us"]["mean"]
     add(paragraph(f"One to 36 states changed latency from <b>{a:.0f} to {b:.0f} µs</b> on one P core and from <b>{c:.0f} to {d:.0f} µs</b> on six. Latency showed no consistent increase with footprint. The 36-state round took {36*b/1000:.1f} and {36*d/1000:.1f} ms, respectively, including all recurrent updates and their driver copies. Full-model inference also includes projections, attention and MoE computation."))
-    add(paragraph(f"The one-state rotation baseline was {a:.0f} µs versus {latency1:.0f} µs in the main one-core sweep, about {(a/latency1-1):.0%} higher. These are separate runs with different state initialization and timing loops. Their difference gives context for small effects within the rotation test."))
     add(paragraph("Measured cache-size, DRAM and compute references", "ReportHeading"))
     add(figure("cache_roofline", height=178))
     add(paragraph(f"The scalar-gated recurrence performs about {study['flops_per_step']/1e6:.2f} MFLOP per step, counting FMA as two operations and excluding exponentials. The logical lower bound is {data['gdn_logical_bytes']/2**20:.2f} MiB per step, or {study['logical_flops_per_byte']:.3f} FLOP/byte. It includes the input/output state copy, the driver copy and small tensors. Additional passes raise traffic, and cache residency changes how many bytes reach DRAM. Both operating points use this same logical denominator."))
@@ -162,13 +166,13 @@ def make_report():
     add(figure("state_vs_kv", height=165))
     add(paragraph(f"The recurrent state is 32 x 128 x 128 FP32 values, or <b>2 MiB per layer</b>. Each Qwen3-Next full-attention layer has two KV heads of width 256. F16 keys and values cost 2 KiB per token, or <b>64 MiB per layer at 32,768 tokens</b>. The storage model excludes weights, convolution state and compute buffers. The laptop GDN sweep's peak process working set was {data['max_gdn_rss']/2**20:.1f} MiB, with at least {data['min_free_ram']/2**30:.2f} GiB of free RAM."))
     add(paragraph("Assignment bandwidth comparison", "ReportHeading"))
-    add(Table([[figure("roofline", 260, 131), paragraph(f"Six-core STREAM Triad was {prior_bw:.2f} GB/s in the first sweep and {bw:.2f} GB/s in the clean sweep. That changes the logical prediction from {prior_prediction:,.0f} to {predicted:,.0f} tokens/s. The clean 1k decode result was {pinned:,.0f} tokens/s. We did not isolate the cause of the STREAM change. In the secondary affinity test, pinned decode went from 4.1% faster to {abs(pinned/unpinned-1):.1%} slower than OS placement.", "SmallNote")]], colWidths=[265, 245]))
+    add(Table([[figure("roofline", 260, 131), paragraph(f"Six-core STREAM Triad measured {bw:.2f} GB/s, giving a logical prediction of {predicted:,.0f} tokens/s. The six-core decode point at 1,024 tokens was {pinned:,.0f} tokens/s in the full thread sweep. The plot uses the same timing protocol across all worker counts.", "SmallNote")]], colWidths=[265, 245]))
     add(paragraph("Shared PARAM Rudra CPU reference", "ReportHeading"))
-    add(paragraph(f"Llama 3.2 1B Instruct Q4_K_M ran on four Xeon Gold 6240R threads with a 512-token prompt and 128-token decode. Job 186881 averaged {rudra['avg_ts']:.2f} +/- {rudra['stddev_ts']:.2f} combined tokens/s. Rerun 186891 averaged <b>{rerun['avg_ts']:.2f} +/- {rerun['stddev_ts']:.2f} tokens/s</b> over three repeats and measured <b>{rudra_rss/2**30:.2f} GiB peak RSS</b> via Linux child process accounting.", "SmallNote"))
+    add(paragraph(f"Job 186891 ran Llama 3.2 1B Instruct Q4_K_M on four Xeon Gold 6240R threads with a 512-token prompt and 128-token decode. The run averaged <b>{rudra['avg_ts']:.2f} +/- {rudra['stddev_ts']:.2f} combined tokens/s</b> over three repeats and measured <b>{rudra_rss/2**30:.2f} GiB peak RSS</b> via Linux child process accounting.", "SmallNote"))
     add(paragraph("What we learned", "ReportHeading"))
     add(paragraph("• GDN state stays fixed per layer. Exceeding shared L3 with 36 states produced no consistent latency penalty in this experiment.<br/>• The single-token graph barely sped up at six workers, and its serial carry became slower. Prefill amortizes per-call costs across a chunk.<br/>• Bulk bandwidth provides a reference. Traversing, copying and scheduling the state help explain the observed decode latency."))
     add(paragraph("Reproduction and sources", "ReportHeading"))
-    add(paragraph("The repository contains raw samples, scripts and plots. The first STREAM sweep is archived at commit 3bb2993. Primary sources are llama.cpp at 8bb3cf0d, the official Qwen3-Next configuration, STREAM 5.10 and Intel's Core Ultra 9 185H specifications.", "SmallNote"))
+    add(paragraph("The repository contains raw samples, scripts and plots. Primary sources are llama.cpp at 8bb3cf0d, the official Qwen3-Next configuration, STREAM 5.10 and Intel's Core Ultra 9 185H specifications.", "SmallNote"))
     path = OUT / "pdf/Project_1_Report.pdf"
     path.parent.mkdir(parents=True, exist_ok=True)
     def footer(canvas, doc):

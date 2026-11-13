@@ -6,7 +6,7 @@ Project 1, Option 5. This study measures the fused `GATED_DELTA_NET` operator in
 
 ## Results
 
-- At 1,024 tokens of starting history, one decode step took **487 µs on one P core** and **482 µs on six P cores**, calculated from mean throughput. The earlier six-core slowdown at 32k did not recur in the clean rerun. [Sweep summary](results/summary.json)
+- In the two-second timing run, one decode step at 1,024 tokens of starting history took **454 µs on one P core** and **429 µs on six P cores**. Six-core prefill at 4,096 tokens was **3.52×** as fast as one core. [Timing data](results/gdn_long_repeats.csv)
 - One to 36 independent states changed mean latency from **563 to 535 µs** on one P core and **595 to 622 µs** on six. The latter difference was smaller than the 36-state repeat SD of 52 µs. [Working-set measurements](output/plots/working_sets.pdf)
 - The recurrent state occupies **2 MiB** per layer. The Qwen3-Next F16 attention KV cache reaches **64 MiB** per attention layer at 32,768 tokens. [Storage comparison](output/plots/state_vs_kv.pdf)
 - The correctness check covers 1,000 changing-input steps against an independent FP64 implementation and checks multi-token equivalence. [Correctness results](results/gdn_correctness.json)
@@ -36,7 +36,7 @@ Connect the charger, select Windows Best Performance, and exit browsers and IDEs
 
 `scripts/run_benchmarks.py --clean-rerun --output build/reproduction` runs the measurements into a separate directory after the initial build. `scripts/run.ps1 -AllowBattery` saves provisional raw measurements separately under `build/`. The final run verified AC power and the effective Windows performance overlay. Chrome and Edge processes were absent at startup, and the chat remained open.
 
-Run `scripts/run_benchmarks.py --long-repeats --output build/long-reproduction` for the two-second follow-up. It runs three interleaved repeats across ten selected decode and prefill settings. The original full sweep remains the source for the length and scaling plots. [Follow-up results](results/gdn_long_repeats.csv) · [Run environment](results/long_repeats_environment.json)
+Run `scripts/run_benchmarks.py --long-repeats --output build/long-reproduction` for the two-second timing run. It uses three interleaved repeats across ten decode and prefill settings. The full thread-scaling plot uses a 0.35-second minimum at each worker count. [Timing data](results/gdn_long_repeats.csv) · [Run environment](results/long_repeats_environment.json)
 
 ## Measurement protocol
 
@@ -58,7 +58,9 @@ The analytical attention comparison uses F16 KV and Qwen3-Next's two KV heads of
 
 ## Shared PARAM Rudra reference
 
-The four-thread rerun, job **186891**, measured **92.77 ± 0.16 combined tokens/s** and **1.33 GiB peak RSS** on `rdcn20` (Xeon Gold 6240R). It used the same Llama 3.2 1B Instruct Q4_K_M model, 512-token prompt, 128-token decode, and three repeats as job 186881. The original averaged 93.92 ± 0.07 tokens/s. The wrapper measures the benchmark child's peak RSS with Linux `getrusage`. [Rerun data](results/param-rudra/186891/) · [Original data](results/param-rudra/186881/)
+The four-thread run, job **186891**, measured **92.77 ± 0.16 combined tokens/s** and **1.33 GiB peak RSS** on `rdcn20` (Xeon Gold 6240R). It used Llama 3.2 1B Instruct Q4_K_M, a 512-token prompt, a 128-token decode, and three repeats. The wrapper measures the benchmark child's peak RSS with Linux `getrusage`. [Run data and logs](results/param-rudra/186891/)
+
+Archived measurements are available for the [earlier PARAM Rudra job](results/param-rudra/186881/) and the [earlier laptop session](https://github.com/secureswim/cpu-inference-gdn-mamba3/tree/3bb2993/results).
 
 Use `scripts/run_shared_reference.sh` inside a CPU allocation with `LLAMA_SOURCE`, `MODEL`, and `THREADS` set. The original GCC 8.5 build linked with `-DCMAKE_CXX_STANDARD_LIBRARIES:STRING=-lstdc++fs`.
 
