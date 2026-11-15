@@ -138,8 +138,13 @@ void rotate_states(int threads, int count, bool diagnostic) {
     graph.state->data = owned_state;
 }
 
-void check() {
-    Graph a(1,1);
+void check(int threads) {
+    auto error = [](double expected, double actual) {
+        if (!std::isfinite(expected) || !std::isfinite(actual))
+            throw std::runtime_error("Nonfinite correctness result");
+        return std::abs(expected - actual);
+    };
+    Graph a(1,threads);
     std::mt19937 rng(97);
     std::uniform_real_distribution<float> dist(-0.2f,0.2f);
     std::vector<double> ref(STATE);
@@ -163,15 +168,15 @@ void check() {
                 const double delta=(v[j]-dot)*double(static_cast<float *>(a.beta->data)[h]);
                 double y=0;
                 for(int i=0;i<D;++i) { row[i]+=delta*k[i]; y+=row[i]*q[i]; }
-                max_output=std::max(max_output,std::abs(y/std::sqrt(double(D))-static_cast<float *>(a.out->data)[h*D+j]));
+                max_output=std::max(max_output,error(y/std::sqrt(double(D)),static_cast<float *>(a.out->data)[h*D+j]));
             }
         }
         auto s=static_cast<float *>(a.out->data)+HV*D;
-        for(size_t i=0;i<STATE;++i) max_state=std::max(max_state,std::abs(ref[i]-s[i]));
+        for(size_t i=0;i<STATE;++i) max_state=std::max(max_state,error(ref[i],s[i]));
         std::memcpy(a.state->data,s,STATE*4);
     }
     // A multi-token graph must equal repeated one-token graphs, including broadcasting.
-    Graph sequence(17,1); Graph recurrent(1,1);
+    Graph sequence(17,threads); Graph recurrent(1,threads);
     sequence.compute();
     double max_chunk=0;
     for(int t=0;t<17;++t) {
@@ -180,10 +185,10 @@ void check() {
         for(int j=0;j<5;++j) std::memcpy(dst[j]->data,static_cast<char *>(src[j]->data)+t*src[j]->nb[2],dst[j]->nb[2]);
         recurrent.advance();
         for(int i=0;i<HV*D;++i)
-            max_chunk=std::max(max_chunk,double(std::abs(static_cast<float *>(recurrent.out->data)[i]-static_cast<float *>(sequence.out->data)[t*HV*D+i])));
+            max_chunk=std::max(max_chunk,error(static_cast<float *>(recurrent.out->data)[i],static_cast<float *>(sequence.out->data)[t*HV*D+i]));
     }
     auto final_state=static_cast<float *>(sequence.out->data)+17*HV*D;
-    for(size_t i=0;i<STATE;++i) max_chunk=std::max(max_chunk,double(std::abs(final_state[i]-static_cast<float *>(recurrent.state->data)[i])));
+    for(size_t i=0;i<STATE;++i) max_chunk=std::max(max_chunk,error(final_state[i],static_cast<float *>(recurrent.state->data)[i]));
     std::cout << "{\"steps\":1000,\"max_state_abs\":" << max_state
               << ",\"max_output_abs\":" << max_output << ",\"chunk_abs\":" << max_chunk << "}\n";
     if(max_state>2e-5 || max_output>2e-5 || max_chunk>2e-5) throw std::runtime_error("Correctness failed");
@@ -192,10 +197,18 @@ void check() {
 int main(int argc,char **argv) try {
     if(argc<2) throw std::runtime_error("Expected check, history, rotate, or bench");
     const std::string command = argv[1];
+    if(command=="check") {
+        if(argc>3) throw std::runtime_error("Expected check [threads]");
+        const int threads=argc==3 ? std::stoi(argv[2]) : 1;
+        if(threads<1 || threads>512) throw std::runtime_error("Expected 1..512 threads");
+        pin_performance_cores(true, size_t(threads));
+        std::cout << std::setprecision(10);
+        check(threads);
+        return 0;
+    }
     pin_performance_cores(command != "bench" || argc < 6 || std::stoi(argv[5]) != 0,
                           argc >= 3 ? size_t(std::stoi(argv[2])) : 1);
     std::cout << std::setprecision(10);
-    if(command=="check") { check(); return 0; }
     if (command == "history" && argc == 3) {
         const int threads = std::stoi(argv[2]);
         if (threads < 1 || threads > 512) throw std::runtime_error("Expected 1..512 threads");

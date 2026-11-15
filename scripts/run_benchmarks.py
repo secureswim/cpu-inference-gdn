@@ -275,7 +275,7 @@ def sweep(allow_battery=False, stream_only=False, clean=False):
                 "repeats": 3, "minimum_repeat_seconds": 0.35,
                 "llama_commit": "8bb3cf0d216a5ae48360179f2931daf284be4d01"}
     (RESULTS / "environment.json").write_text(json.dumps(metadata, indent=2))
-    correctness = execute([BIN / f"gdn{SUFFIX}", "check"])
+    correctness = execute([BIN / f"gdn{SUFFIX}", "check", len(cpus)])
     (RESULTS / "gdn_correctness.json").write_text(correctness, encoding="utf-8")
     configs = [(mode, length, threads, 1)
                for threads in range(1, len(cpus) + 1)

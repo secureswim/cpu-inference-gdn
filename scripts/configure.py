@@ -237,9 +237,9 @@ def configure(args):
     try:
         source = ROOT / "build/vendor/ggml"
         marker = source / ".project-source.json"
-        expected_source = {"commit": "8bb3cf0d216a5ae48360179f2931daf284be4d01", "instrumentation": 1}
+        expected_source = {"commit": "8bb3cf0d216a5ae48360179f2931daf284be4d01", "instrumentation": 1, "license": True}
         try:
-            prepared = json.loads(marker.read_text(encoding="utf-8")) == expected_source
+            prepared = json.loads(marker.read_text(encoding="utf-8")) == expected_source and (source / "LICENSE").is_file()
         except (OSError, ValueError):
             prepared = False
         if source.exists() and not prepared:

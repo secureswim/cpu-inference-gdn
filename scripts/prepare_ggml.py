@@ -25,6 +25,8 @@ def prepare(local_source=None):
         target.parent.mkdir(parents=True, exist_ok=True)
         with tarfile.open(fileobj=io.BytesIO(archive)) as tar:
             tar.extractall(target.parent, filter="data")
+        (target / "LICENSE").write_bytes(subprocess.check_output(
+            ["git", "-C", str(source), "show", "HEAD:LICENSE"]))
     else:
         clone = ROOT / "build/vendor/llama.cpp"
         clone.parent.mkdir(parents=True, exist_ok=True)
@@ -34,6 +36,7 @@ def prepare(local_source=None):
         subprocess.run(["git", "-C", str(clone), "fetch", "--depth=1", "origin", COMMIT], check=True)
         subprocess.run(["git", "-C", str(clone), "checkout", "--detach", "FETCH_HEAD"], check=True)
         shutil.copytree(clone / "ggml", target)
+        shutil.copyfile(clone / "LICENSE", target / "LICENSE")
     cpu = target / "src/ggml-cpu/ggml-cpu.c"
     text = cpu.read_text(encoding="utf-8")
     text = text.replace("#if _WIN32_WINNT >= 0x0602\n        THREAD_POWER", "#if _WIN32_WINNT >= 0x0602 && defined(THREAD_POWER_THROTTLING_CURRENT_VERSION) && defined(THREAD_POWER_THROTTLING_EXECUTION_SPEED)\n        THREAD_POWER")
@@ -71,7 +74,7 @@ extern "C" double project_profile_read(int phase) {
 #define PROJECT_TOCK(P) if(project_profiling) project_phase_seconds[params->ith][P] += std::chrono::duration<double>(std::chrono::steady_clock::now()-project_start_##P).count()
 '''
     ops.write_text(text[:start]+helpers+part+text[end:],encoding="utf-8")
-    (target / ".project-source.json").write_text(json.dumps({"commit": COMMIT, "instrumentation": 1}), encoding="utf-8")
+    (target / ".project-source.json").write_text(json.dumps({"commit": COMMIT, "instrumentation": 1, "license": True}), encoding="utf-8")
     print(f"Prepared ggml {COMMIT}; CPU-only build, optional phase timers")
 
 
