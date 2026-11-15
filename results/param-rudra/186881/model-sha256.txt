@@ -1,1 +1,0 @@
-3f5a22426976ab26cfe84dba63c1d08391717abb1af893e10f1b2968d862dcc1  Llama-3.2-1B-Instruct-Q4_K_M.gguf

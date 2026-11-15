@@ -1,8 +1,12 @@
 #!/usr/bin/env bash
 set -euo pipefail
+cd "$(dirname "$0")/.."
+python_bin="${PYTHON:-python3}"
+"$python_bin" scripts/system_config.py
+workers=$("$python_bin" -c 'import json; print(json.load(open("build/system.json"))["threads"])')
 # Use a Linux build with debug symbols. PERF can select a WSL-compatible perf binary.
 perf_bin="${PERF:-perf}"
-gdn="${GDN:-build/cmake/gdn}"
+gdn="${GDN:-build/cmake/bin/gdn}"
 out="${PROFILE_OUTPUT:-build/perf}"
 event="${PERF_EVENT:-cpu-clock:u}"
 mkdir -p "$out"
@@ -15,5 +19,5 @@ capture() {
   "$perf_bin" report --stdio --no-children --percent-limit 0.5 -i "$out/$name.data" > "$out/$name.txt"
 }
 capture decode-1 1 decode 1024
-capture decode-6 6 decode 1024
+capture decode-max "$workers" decode 1024
 capture prefill-1 1 prefill 4096

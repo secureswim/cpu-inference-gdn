@@ -1,4 +1,5 @@
 """Generate all figures and machine-readable summaries from the raw CSVs."""
+import argparse
 import csv
 import json
 import os
@@ -6,6 +7,10 @@ from pathlib import Path
 import statistics as stats
 
 os.environ.setdefault("MPLCONFIGDIR", str(Path(__file__).resolve().parents[1] / "build/matplotlib"))
+from system_config import use_project_python
+if __name__ == "__main__":
+    use_project_python()
+
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
@@ -14,7 +19,6 @@ import numpy as np
 ROOT = Path(__file__).resolve().parents[1]
 RESULTS = ROOT / "results"
 PLOTS = ROOT / "output/plots"
-PLOTS.mkdir(parents=True, exist_ok=True)
 plt.rcParams.update({"font.family": "DejaVu Sans", "font.size": 10,
                      "axes.spines.top": False, "axes.spines.right": False,
                      "axes.titleweight": "bold", "figure.dpi": 160})
@@ -48,7 +52,7 @@ def save(fig, name):
 def working_set_analysis(max_threads, logical_bytes, stream_summary):
     rotation = read("working_sets.csv")
     ceilings = read("ceilings.csv")
-    endpoints = (1, max_threads)
+    endpoints = sorted({1, max_threads})
     counts = (1, 4, 12, 36)
     expected = {(str(n), str(count), str(diag))
                 for n in endpoints for count in counts for diag in (0, 1)}
@@ -94,7 +98,7 @@ def working_set_analysis(max_threads, logical_bytes, stream_summary):
         subset = [r for r in rows if r["threads"] == n]
         ax.errorbar(counts, [r["latency_us"]["mean"] for r in subset],
                     yerr=[r["latency_us"]["sd"] for r in subset], marker="o", capsize=3,
-                    label="1 P core" if n == 1 else f"{n} P cores", color=COLORS[index])
+                    label=f"{n} worker(s)", color=COLORS[index])
     ax.set(xscale="log", xticks=counts, xlabel="Independent recurrent states",
            ylabel="Mean µs per layer step", title="Uninstrumented decode")
     ax.set_xticklabels(counts)
@@ -105,7 +109,7 @@ def working_set_analysis(max_threads, logical_bytes, stream_summary):
     parts.bar(positions, graph_us, color=COLORS[0], label="Graph")
     parts.bar(positions, [r["carry_us"]["mean"] for r in subset],
               bottom=graph_us, color=COLORS[1], label="Serial driver carry")
-    labels = [f'{r["threads"]}P\n{r["states"]} {"state" if r["states"] == 1 else "states"}' for r in subset]
+    labels = [f'{r["threads"]} workers\n{r["states"]} {"state" if r["states"] == 1 else "states"}' for r in subset]
     parts.set(xticks=positions, xticklabels=labels,
               ylabel="Mean µs per layer step", title="Separate diagnostic timings",
               ylim=(0, max(r["graph_us"]["mean"] + r["carry_us"]["mean"] for r in subset) * 1.25))
@@ -117,8 +121,11 @@ def working_set_analysis(max_threads, logical_bytes, stream_summary):
         subset = [r for r in bandwidth if r["threads"] == n]
         ax.errorbar([r["bytes"]/MIB for r in subset], [r["mean"] for r in subset],
                     yerr=[r["sd"] for r in subset], marker="o", capsize=2,
-                    label="1 P core" if n == 1 else f"{n} P cores", color=COLORS[index])
-    ax.axvline(24, color="#777777", linestyle="--", label="Shared L3 capacity")
+                    label=f"{n} worker(s)", color=COLORS[index])
+    hardware = (RESULTS / "hardware.txt").read_text(encoding="utf-8") if (RESULTS / "hardware.txt").exists() else ""
+    cache_bytes = sum(int(line.split(",")[1]) for line in hardware.splitlines() if line.startswith("cache=3,"))
+    if cache_bytes:
+        ax.axvline(cache_bytes / MIB, color="#777777", linestyle="--", label="Reported total L3 capacity")
     ax.set(xscale="log", xlabel="Combined source + destination footprint (MiB)",
            ylabel="Effective copy bandwidth (GB/s)")
     ax.legend(frameon=False, fontsize=8)
@@ -126,7 +133,8 @@ def working_set_analysis(max_threads, logical_bytes, stream_summary):
 
     limits = []
     intensity = GDN_FLOPS / logical_bytes
-    fig, axes = plt.subplots(1, 2, figsize=(9.7, 3.6), sharey=True)
+    fig, axes = plt.subplots(1, len(endpoints), figsize=(9.7, 3.6), sharey=True, squeeze=False)
+    axes = axes[0]
     x = np.geomspace(0.04, 100, 200)
     for ax, n in zip(axes, endpoints):
         compute = rates[("fma", str(n), "0")]["mean"]
@@ -149,16 +157,16 @@ def working_set_analysis(max_threads, logical_bytes, stream_summary):
             ax.scatter(intensity, performance, marker=("o", "x")[index], s=38,
                        color=("#222222", "#A63A50")[index], zorder=3, label=f"{count} state(s)")
         ax.set(xscale="log", yscale="log", xlabel="Logical FLOP/byte",
-               title="1 P core" if n == 1 else f"{n} P cores")
+               title=f"{n} worker(s)")
     axes[0].set_ylabel("GFLOP/s")
-    axes[1].legend(frameon=False, fontsize=7, loc="lower right")
+    axes[-1].legend(frameon=False, fontsize=7, loc="lower right")
     save(fig, "cache_roofline")
     return {"measurements": rows, "ceilings": limits, "copy_bandwidth": bandwidth,
             "flops_per_step": GDN_FLOPS, "logical_flops_per_byte": intensity,
             "history": history}
 
 
-def analyze():
+def analyze(summary_path=None):
     gdn = read("gdn_raw.csv")
     stream = read("stream_raw.csv")
     summary = group(gdn, ("mode", "length", "threads", "pinned"), "tokens_s")
@@ -174,12 +182,12 @@ def analyze():
     for ax, mode, lengths, label in zip(axes, ("decode", "prefill"),
                                       ((1024, 8192, 32768), (512, 4096, 32768)),
                                       ("Starting context (tokens)", "Prompt length (tokens)")):
-        for j, t in enumerate((1, max_thread)):
+        for j, t in enumerate(sorted({1, max_thread})):
             points = [(length, longer.get((mode, str(length), str(t), "1"))
                        if longer else measured(mode, length, t)) for length in lengths]
             lengths_measured, data = zip(*((length, row) for length, row in points if row))
             ax.errorbar(lengths_measured, [x["mean"] for x in data], yerr=[x["sd"] for x in data],
-                        marker="o", capsize=4, label=f"{t} P core{'s' if t > 1 else ''}", color=COLORS[j])
+                        marker="o", capsize=4, label=f"{t} worker(s)", color=COLORS[j])
         ax.set(xlabel=label, ylabel="Operator tokens/s", title=mode.capitalize(), xscale="log", xticks=lengths)
         ax.set_xticklabels([f"{x:,}" for x in lengths])
         ax.legend(frameon=False)
@@ -193,7 +201,7 @@ def analyze():
                     yerr=[measured(mode, length, t)["sd"] / base for t in threads],
                     marker="o", capsize=3, label=f"{mode}, {length:,} tokens", color=color)
     ax.plot(threads, threads, "--", color="#777777", linewidth=1, label="Ideal linear scaling")
-    ax.set(xlabel="Physical performance cores", ylabel="Speedup over one core", xticks=threads)
+    ax.set(xlabel="Workers", ylabel="Speedup over one worker", xticks=threads)
     ax.legend(frameon=False, fontsize=9)
     save(fig, "thread_scaling")
 
@@ -222,7 +230,7 @@ def analyze():
     ax.errorbar(threads, [measured("decode", 1024, t)["mean"] for t in threads],
                 yerr=[measured("decode", 1024, t)["sd"] for t in threads], marker="o", capsize=3,
                 label="Measured GDN + state carry", color=COLORS[0])
-    ax.set(xlabel="Physical performance cores", ylabel="Operator tokens/s", xticks=threads)
+    ax.set(xlabel="Workers", ylabel="Operator tokens/s", xticks=threads)
     ax.legend(frameon=False)
     save(fig, "roofline")
 
@@ -240,7 +248,7 @@ def analyze():
         data = [measured(mode, length, max_thread, pin) for mode, length in (("decode", 1024), ("prefill", 4096))]
         ax.bar(np.arange(2)+(j-.5)*.36, [d["mean"] for d in data], width=.36,
                yerr=[d["sd"] for d in data], capsize=3,
-               label="P cores pinned" if pin else "OS placement", color=COLORS[j])
+               label="Configured placement" if pin else "OS placement", color=COLORS[j])
     ax.set(xticks=[0, 1], xticklabels=["Decode 1k", "Prefill 4k"], ylabel="Operator tokens/s")
     ax.legend(frameon=False)
     save(fig, "affinity_experiment")
@@ -264,9 +272,20 @@ def analyze():
                                      for key, value in longer.items() if int(key[2]) == max_thread),
             },
         }
-    (RESULTS / "summary.json").write_text(json.dumps(exported, indent=2))
+    destination = summary_path if summary_path is not None else RESULTS / "summary.json"
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    destination.write_text(json.dumps(exported, indent=2), encoding="utf-8")
     print(f"Summarized {len(gdn)} GDN rows and {len(stream)} STREAM rows.")
 
 
 if __name__ == "__main__":
-    analyze()
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--results", type=Path, default=ROOT / "build/reproduction/results")
+    parser.add_argument("--output", type=Path, default=ROOT / "build/reproduction/output/plots")
+    parser.add_argument("--summary", type=Path, help="Summary destination; submitted inputs default to the plots parent, fresh inputs to RESULTS/summary.json")
+    args = parser.parse_args()
+    RESULTS, PLOTS = args.results.resolve(), args.output.resolve()
+    summary_path = (args.summary.resolve() if args.summary else
+                    PLOTS.parent / "summary.json" if RESULTS == ROOT / "results" else RESULTS / "summary.json")
+    PLOTS.mkdir(parents=True, exist_ok=True)
+    analyze(summary_path)

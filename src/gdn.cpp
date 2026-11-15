@@ -192,7 +192,8 @@ void check() {
 int main(int argc,char **argv) try {
     if(argc<2) throw std::runtime_error("Expected check, history, rotate, or bench");
     const std::string command = argv[1];
-    pin_performance_cores(command != "bench" || argc < 6 || std::stoi(argv[5]) != 0);
+    pin_performance_cores(command != "bench" || argc < 6 || std::stoi(argv[5]) != 0,
+                          argc >= 3 ? size_t(std::stoi(argv[2])) : 1);
     std::cout << std::setprecision(10);
     if(command=="check") { check(); return 0; }
     if (command == "history" && argc == 3) {

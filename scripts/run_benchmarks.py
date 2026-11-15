@@ -14,16 +14,21 @@ import sys
 import time
 import uuid
 
+from system_config import require_configuration, use_project_python
+
+if __name__ == "__main__":
+    use_project_python()
+
 import psutil
 
 ROOT = Path(__file__).resolve().parents[1]
-BIN = ROOT / "build/cmake"
+BIN = ROOT / "build/cmake/bin"
 SUFFIX = ".exe" if os.name == "nt" else ""
-RESULTS = ROOT / "results"
+RESULTS = ROOT / "build/reproduction/results"
+ALLOW_BATTERY = False
 GDN_COLUMNS = ("mode,length,threads,pinned,repeat,tokens,seconds,tokens_s,peak_rss_bytes,"
                "free_ram_bytes,copy_s,decay_s,delta_s,update_s,readout_s").split(",")
 FOOTPRINT_KIB = (128, 512, 1024, 2048, 4096, 8192, 16384, 24576, 49152, 98304, 196608)
-BEST_PERFORMANCE = "ded574b5-45a0-4f42-8737-46345c09c238"
 DESKTOP_APPS = {"chrome", "msedge", "firefox", "brave", "opera", "vivaldi", "code", "devenv",
                 "idea64", "pycharm64", "clion64", "cursor", "windsurf"}
 
@@ -50,18 +55,31 @@ def desktop_apps():
 
 
 def require_clean_conditions(check_background=False):
-    if os.name != "nt":
-        raise RuntimeError("The clean rerun checks are specific to the assignment laptop")
-    hardware = dict(line.split("=", 1) for line in execute([BIN / f"machine{SUFFIX}"]).splitlines())
-    overlay = power_overlay()
-    if hardware.get("ac_line_status") != "1" or overlay != {"status": 0, "guid": BEST_PERFORMANCE}:
-        raise RuntimeError("Connect AC power and select Windows Best Performance")
-    apps, background = desktop_apps()
-    if apps:
-        raise RuntimeError("Close open browser and IDE windows: " + ", ".join(apps))
-    if check_background and background:
-        raise RuntimeError("End leftover browser and IDE processes: " + ", ".join(background))
-    return background
+    battery = psutil.sensors_battery()
+    if battery is not None and not battery.power_plugged and not ALLOW_BATTERY:
+        raise RuntimeError("Connect the charger, or use --allow-battery for provisional measurements")
+    if check_background:
+        if os.name != "nt":
+            raise RuntimeError("Visible-window checks are available on Windows only")
+        apps, background = desktop_apps()
+        if apps or background:
+            raise RuntimeError("Close browser/IDE processes: " + ", ".join(sorted(set(apps + background))))
+    return []
+
+
+def selected_cpus():
+    config = require_configuration()
+    # macOS has no supported process affinity API; these are worker slots, not pinned CPU IDs.
+    return config["cpus"][:config["threads"]] or list(range(config["threads"]))
+
+
+def host_metadata():
+    config = require_configuration()
+    battery = psutil.sensors_battery()
+    return {"system_configuration": config, "affinity": config["affinity"],
+            "worker_count": config["threads"],
+            "ac_power": battery.power_plugged if battery is not None else "not reported",
+            "timings_provisional": battery is not None and not battery.power_plugged}
 
 
 def write_measurement(name, runs):
@@ -82,7 +100,7 @@ def write_measurement(name, runs):
 
 
 def measure_working_sets(cpus):
-    endpoints = (1, len(cpus))
+    endpoints = sorted({1, len(cpus)})
     gdn = BIN / f"gdn{SUFFIX}"
     ceilings = BIN / f"ceilings{SUFFIX}"
     write_measurement("history_states.csv", ([gdn, "history", n] for n in endpoints))
@@ -115,9 +133,21 @@ def power_overlay():
         return {"status": "unavailable"}
 
 
+def power_scheme():
+    if os.name != "nt":
+        return "not reported"
+    try:
+        return subprocess.check_output(["powercfg", "/getactivescheme"], text=True).strip()
+    except (OSError, subprocess.CalledProcessError):
+        return "not reported"
+
+
 @contextlib.contextmanager
 def affinity(cpus):
     process = psutil.Process()
+    if not hasattr(process, "cpu_affinity"):
+        yield
+        return
     previous = process.cpu_affinity()
     process.cpu_affinity(cpus)
     try:
@@ -130,12 +160,16 @@ def measure_stream(cpus):
     hardware = execute([BIN / f"machine{SUFFIX}"])
     (RESULTS / "stream_hardware.txt").write_text(hardware)
     cache_bytes = sum(int(line.split(",")[1]) for line in hardware.splitlines() if line.startswith("cache=3,"))
-    bytes_per_array = 20000000 * 8
+    elements = require_configuration()["stream_elements"]
+    bytes_per_array = elements * 8
+    if psutil.virtual_memory().available < bytes_per_array * 3 + 256 * 2**20:
+        raise RuntimeError("Insufficient available RAM for STREAM. Close other apps and rerun in a new output folder.")
     if bytes_per_array < 4 * cache_bytes:
         raise RuntimeError("Increase STREAM_ARRAY_SIZE so each array exceeds four times the total LLC")
-    metadata = {"timestamp": time.strftime("%Y-%m-%dT%H:%M:%S%z"), "elements_per_array": 20000000,
+    metadata = {"timestamp": time.strftime("%Y-%m-%dT%H:%M:%S%z"), "elements_per_array": elements,
                 "bytes_per_array": bytes_per_array, "total_array_bytes": bytes_per_array * 3,
-                "last_level_cache_bytes": cache_bytes, "p_core_logical_indices": cpus,
+                "last_level_cache_bytes": cache_bytes or None, "selected_cpu_indices": require_configuration()["cpus"],
+                **host_metadata(),
                 "effective_power_overlay": power_overlay()}
     (RESULTS / "stream_environment.json").write_text(json.dumps(metadata, indent=2))
     with (RESULTS / "stream_raw.csv").open("w", newline="") as file:
@@ -156,7 +190,7 @@ def measure_stream(cpus):
                             break
                         time.sleep(0.01)
                     output, err = process.communicate()
-                    if process.returncode or "Solution Validates" not in output or "Array size = 20000000" not in output:
+                    if process.returncode or "Solution Validates" not in output or f"Array size = {elements}" not in output:
                         raise RuntimeError(output + err)
                 (RESULTS / f"stream_t{threads}_r{repeat}.txt").write_text(output)
                 for name, best, avg, low, high in re.findall(r"^(Copy|Scale|Add|Triad):\s+([\d.]+)\s+([\d.]+)\s+([\d.]+)\s+([\d.]+)", output, re.M):
@@ -199,19 +233,20 @@ def long_repeats(check_background=False):
     RESULTS.mkdir(parents=True, exist_ok=True)
     background = require_clean_conditions(check_background)
     hardware = dict(line.split("=", 1) for line in execute([BIN / f"machine{SUFFIX}"]).splitlines())
-    cores = len([mask for mask in hardware["p_core_masks"].split(",") if mask])
-    configs = [("decode", length, n, 1) for n in (1, cores) for length in (1024, 8192, 32768)]
+    cores = require_configuration()["threads"]
+    configs = [("decode", length, n, 1) for n in sorted({1, cores}) for length in (1024, 8192, 32768)]
     configs += [("prefill", length, cores, 1) for length in (512, 4096, 32768)]
-    configs.append(("prefill", 4096, 1, 1))
+    if cores != 1:
+        configs.append(("prefill", 4096, 1, 1))
     start = time.strftime("%Y-%m-%dT%H:%M:%S%z")
     measure_gdn(configs, clean=True, minimum_seconds=2.0, filename="gdn_long_repeats.csv",
                 check_background=check_background)
     require_clean_conditions(check_background)
     metadata = {
         "start": start, "end": time.strftime("%Y-%m-%dT%H:%M:%S%z"),
-        "cpu": hardware["cpu"], "p_core_count": cores, "repeats": 3, "minimum_seconds": 2.0,
-        "effective_power_overlay": power_overlay(), "ac_power_checks_passed": True,
-        "browser_and_ide_window_checks_passed": True, "background_browser_ide_processes_at_start": background,
+        "cpu": hardware["cpu"], "worker_count": cores, "repeats": 3, "minimum_seconds": 2.0,
+        "effective_power_overlay": power_overlay(), "ac_power_checks_passed": not host_metadata()["timings_provisional"], **host_metadata(),
+        "browser_and_ide_window_checks_passed": check_background, "background_browser_ide_processes_at_start": background,
         "background_browser_ide_processes_checked_each_repeat": check_background,
         "run_order_seed": 2023522,
     }
@@ -220,26 +255,21 @@ def long_repeats(check_background=False):
 
 def sweep(allow_battery=False, stream_only=False, clean=False):
     RESULTS.mkdir(parents=True, exist_ok=True)
-    background = require_clean_conditions() if clean else []
+    background = require_clean_conditions()
     hardware = execute([BIN / f"machine{SUFFIX}"])
     (RESULTS / ("stream_hardware.txt" if stream_only else "hardware.txt")).write_text(hardware)
-    info = dict(line.split("=", 1) for line in hardware.splitlines())
-    if os.name == "nt" and info["ac_line_status"] != "1" and not allow_battery:
-        raise SystemExit("Connect charger before timing. --allow-battery labels provisional measurements.")
-    masks = [int(value) for value in info["p_core_masks"].split(",") if value]
-    cpus = [mask.bit_length() - 1 for mask in masks]
+    cpus = selected_cpus()
     if stream_only:
         measure_stream(cpus)
         return
     metadata = {"timestamp": time.strftime("%Y-%m-%dT%H:%M:%S%z"),
                 "python": sys.version, "os": platform.platform(),
-                "power_scheme": execute(["powercfg", "/getactivescheme"]).strip() if os.name == "nt" else "unrecorded",
+                "power_scheme": power_scheme(),
                 "effective_power_overlay": power_overlay(),
-                "p_core_logical_indices": cpus, "timings_provisional": info.get("ac_line_status") != "1",
-                "background_apps_closed": clean,
+                "selected_cpu_indices": require_configuration()["cpus"], **host_metadata(),
+                "background_apps_closed": False,
                 "background_browser_ide_processes_at_start": background,
-                "background_note": ("No visible browser or IDE windows. The Codex chat remained open."
-                                    if clean else "Background app closure was not verified."),
+                "background_note": "Background app closure was not verified; power state recorded when available.",
                 "quantization": "FP32 synthetic operator inputs, model quantization and perplexity do not apply to Option 5",
                 "gdn_chunk_tokens": 128, "warmup": "One graph call before each configuration",
                 "repeats": 3, "minimum_repeat_seconds": 0.35,
@@ -257,9 +287,8 @@ def sweep(allow_battery=False, stream_only=False, clean=False):
     if clean:
         require_clean_conditions()
     measure_stream(cpus)
+    measure_working_sets(cpus)
     if clean:
-        require_clean_conditions()
-        measure_working_sets(cpus)
         require_clean_conditions()
 
 
@@ -268,19 +297,20 @@ if __name__ == "__main__":
     parser.add_argument("--allow-battery", action="store_true")
     parser.add_argument("--stream-only", action="store_true")
     parser.add_argument("--clean-rerun", action="store_true",
-                        help="Verify laptop conditions, interleave repeats, and collect working-set and ceiling data")
+                        help="Check available power information and interleave repeats")
     parser.add_argument("--long-repeats", action="store_true",
                         help="Collect a separate AC-powered two-second timing study")
     parser.add_argument("--check-background-apps", action="store_true",
                         help="For the two-second study, also require browser and IDE background processes to be stopped")
     parser.add_argument("--output", type=Path, default=RESULTS)
     args = parser.parse_args()
-    if args.clean_rerun and (args.allow_battery or args.stream_only):
-        parser.error("--clean-rerun requires the full AC-powered sweep")
+    if args.clean_rerun and args.stream_only:
+        parser.error("--clean-rerun requires the full sweep")
     if args.long_repeats and (args.clean_rerun or args.allow_battery or args.stream_only):
         parser.error("--long-repeats is a separate AC-powered timing study")
     if args.check_background_apps and not args.long_repeats:
         parser.error("--check-background-apps applies to --long-repeats")
+    ALLOW_BATTERY = args.allow_battery
     RESULTS = args.output.resolve()
     if args.long_repeats:
         long_repeats(args.check_background_apps)

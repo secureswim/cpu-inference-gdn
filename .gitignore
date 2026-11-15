@@ -1,6 +1,61 @@
-build/
+# Local builds, fetched upstream source, generated reruns, and profiler captures
+/build/
+/dist/
+/models/
+*.gguf
+*.perf.data
+perf.data*
+
+# Python environments and caches
+/.venv/
+/.venv-previous-*/
+/venv/
 __pycache__/
-*.pyc
-.venv/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Local editor, assistant, and operating-system files
+.DS_Store
+Thumbs.db
+Desktop.ini
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
 .codex-finalizer/
 .chart-data-*/
+
+# Scratch measurements must not replace the selected submitted evidence
+/results/local_*/
+/results/param-rudra/local/
+/results/talk-timings.json
+
+# Keep only the requested deliverables and the figures used by them in output/
+/output/*
+!/output/Project_1_Presentation.pptx
+!/output/pdf/
+!/output/plots/
+/output/pdf/*
+!/output/pdf/Project_1_Report.pdf
+/output/plots/*
+!/output/plots/length_sweeps.png
+!/output/plots/length_sweeps.pdf
+!/output/plots/thread_scaling.png
+!/output/plots/thread_scaling.pdf
+!/output/plots/operator_breakdown.png
+!/output/plots/operator_breakdown.pdf
+!/output/plots/roofline.png
+!/output/plots/roofline.pdf
+!/output/plots/state_vs_kv.png
+!/output/plots/state_vs_kv.pdf
+!/output/plots/affinity_experiment.png
+!/output/plots/affinity_experiment.pdf
+!/output/plots/working_sets.png
+!/output/plots/working_sets.pdf
+!/output/plots/cache_bandwidth.png
+!/output/plots/cache_bandwidth.pdf
+!/output/plots/cache_roofline.png
+!/output/plots/cache_roofline.pdf

@@ -1,7 +1,12 @@
 #include <chrono>
 #include <cstring>
 #include <iomanip>
+#include <cmath>
+#if defined(__AVX2__) && defined(__FMA__)
 #include <immintrin.h>
+#elif defined(__aarch64__)
+#include <arm_neon.h>
+#endif
 #include <iostream>
 #include <omp.h>
 #include <string>
@@ -47,25 +52,46 @@ void measure_copy(int threads, size_t total_bytes) {
 }
 
 void measure_compute(int threads) {
-    const auto multiplier = _mm256_set1_ps(0.999999f);
-    const auto increment = _mm256_set1_ps(0.000001f);
+
     for (int repeat = 0; repeat < 3; ++repeat) {
         uint64_t flops = 0;
         double checksum = 0;
         Clock::time_point start;
         #pragma omp parallel num_threads(threads) reduction(+:flops,checksum)
         {
-            __m256 accumulators[8];
-            for (int i = 0; i < 8; ++i) accumulators[i] = _mm256_set1_ps(0.1f * i);
+#if defined(__AVX2__) && defined(__FMA__)
+            using Vector = __m256;
+            constexpr int lanes = 8;
+            const auto multiplier = _mm256_set1_ps(0.999999f);
+            const auto increment = _mm256_set1_ps(0.000001f);
+            auto broadcast = [](float x) { return _mm256_set1_ps(x); };
+            auto fma = [&](Vector x) { return _mm256_fmadd_ps(x, multiplier, increment); };
+            auto lane = [](Vector x) { return _mm_cvtss_f32(_mm256_castps256_ps128(x)); };
+#elif defined(__aarch64__)
+            using Vector = float32x4_t;
+            constexpr int lanes = 4;
+            const auto multiplier = vdupq_n_f32(0.999999f);
+            const auto increment = vdupq_n_f32(0.000001f);
+            auto broadcast = [](float x) { return vdupq_n_f32(x); };
+            auto fma = [&](Vector x) { return vfmaq_f32(increment, x, multiplier); };
+            auto lane = [](Vector x) { return vgetq_lane_f32(x, 0); };
+#else
+            using Vector = float;
+            constexpr int lanes = 1;
+            auto broadcast = [](float x) { return x; };
+            auto fma = [](float x) { return std::fma(x, 0.999999f, 0.000001f); };
+            auto lane = [](float x) { return x; };
+#endif
+            Vector accumulators[8];
+            for (int i = 0; i < 8; ++i) accumulators[i] = broadcast(0.1f * i);
             #pragma omp single
             start = Clock::now();
             do {
-                for (int batch = 0; batch < 4096; ++batch) {
-                    for (auto &value : accumulators) value = _mm256_fmadd_ps(value, multiplier, increment);
-                }
-                flops += 4096 * 8 * 8 * 2; // iterations × independent vectors × lanes × FLOP per FMA
+                for (int batch = 0; batch < 4096; ++batch)
+                    for (auto &value : accumulators) value = fma(value);
+                flops += 4096 * 8 * lanes * 2;
             } while (Clock::now() - start < duration);
-            for (auto value : accumulators) checksum += _mm_cvtss_f32(_mm256_castps256_ps128(value));
+            for (auto value : accumulators) checksum += lane(value);
         }
         const double seconds = std::chrono::duration<double>(Clock::now() - start).count();
         if (checksum <= 0) throw std::runtime_error("Unexpected FMA checksum");

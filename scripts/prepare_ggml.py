@@ -1,5 +1,6 @@
 """Fetch a pinned upstream tree and insert optional, scoped GDN phase timers."""
 import argparse
+import json
 import pathlib
 import shutil
 import subprocess
@@ -28,7 +29,8 @@ def prepare(local_source=None):
         clone = ROOT / "build/vendor/llama.cpp"
         clone.parent.mkdir(parents=True, exist_ok=True)
         subprocess.run(["git", "init", str(clone)], check=True)
-        subprocess.run(["git", "-C", str(clone), "remote", "add", "origin", "https://github.com/ggml-org/llama.cpp.git"], check=True)
+        if subprocess.run(["git", "-C", str(clone), "remote", "get-url", "origin"], capture_output=True).returncode:
+            subprocess.run(["git", "-C", str(clone), "remote", "add", "origin", "https://github.com/ggml-org/llama.cpp.git"], check=True)
         subprocess.run(["git", "-C", str(clone), "fetch", "--depth=1", "origin", COMMIT], check=True)
         subprocess.run(["git", "-C", str(clone), "checkout", "--detach", "FETCH_HEAD"], check=True)
         shutil.copytree(clone / "ggml", target)
@@ -69,10 +71,13 @@ extern "C" double project_profile_read(int phase) {
 #define PROJECT_TOCK(P) if(project_profiling) project_phase_seconds[params->ith][P] += std::chrono::duration<double>(std::chrono::steady_clock::now()-project_start_##P).count()
 '''
     ops.write_text(text[:start]+helpers+part+text[end:],encoding="utf-8")
+    (target / ".project-source.json").write_text(json.dumps({"commit": COMMIT, "instrumentation": 1}), encoding="utf-8")
     print(f"Prepared ggml {COMMIT}; CPU-only build, optional phase timers")
 
 
 if __name__=="__main__":
+    from system_config import require_configuration
+    require_configuration(for_build=True)
     parser=argparse.ArgumentParser()
     parser.add_argument("--local-source")
     args=parser.parse_args()

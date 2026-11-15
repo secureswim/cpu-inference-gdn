@@ -1,9 +1,18 @@
 """Audit sweep coverage, repeats, rates, memory, reference checks, and outputs."""
 import csv
+import hashlib
 import json
 import math
 from collections import Counter
 from pathlib import Path
+from zipfile import ZipFile
+import sys
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
+from system_config import use_project_python
+if __name__ == "__main__":
+    use_project_python()
+
 from pypdf import PdfReader
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -45,8 +54,26 @@ for row in stream:
     assert float(row["best_MB_s"]) > 0
     assert float(row["min_seconds"]) <= float(row["average_seconds"]) <= float(row["max_seconds"])
 
+correctness = json.loads((ROOT / "results/gdn_correctness.json").read_text(encoding="utf-8-sig"))
+assert correctness["steps"] == 1000
+assert all(0 <= correctness[key] <= 2e-5 for key in ("max_state_abs", "max_output_abs", "chunk_abs"))
+provenance = json.loads((ROOT / "results/source-provenance.json").read_text())
+assert hashlib.sha256((ROOT / "vendor/stream.c").read_bytes()).hexdigest() == provenance["stream_sha256"]
+reference_dir = ROOT / "results/param-rudra/186891"
+reference, = json.loads((reference_dir / "reference.json").read_text())
+assert reference["n_prompt"] == 512 and reference["n_gen"] == 128 and reference["n_gpu_layers"] == 0
+assert reference["model_filename"] == "Llama-3.2-1B-Instruct-Q4_K_M.gguf"
+assert len(reference["samples_ts"]) == len(reference["samples_ns"]) == 3
+assert reference["avg_ts"] > 0 and reference["stddev_ts"] >= 0
+assert 0 < json.loads((reference_dir / "peak-rss.json").read_text())["peak_rss_bytes"] < 4.5e9
+assert (reference_dir / "llama-commit.txt").read_text().strip() == "8bb3cf0d216a5ae48360179f2931daf284be4d01"
+
 assert len(PdfReader(ROOT / "output/pdf/Project_1_Report.pdf").pages) == 4
-assert sum(row["seconds"] for row in json.loads((ROOT / "results/talk-timings.json").read_text())) == 600
+with ZipFile(ROOT / "output/Project_1_Presentation.pptx") as presentation:
+    assert presentation.testzip() is None
+    assert any(name.startswith("ppt/slides/slide") and name.endswith(".xml")
+               for name in presentation.namelist())
+# Recording/narration duration must be checked separately; a timing plan is not a recording.
 study = json.loads((ROOT / "results/summary.json").read_text()).get("working_set_study")
 if study:
     endpoints = (1, thread_count)
@@ -90,5 +117,10 @@ if (ROOT / "results/gdn_long_repeats.csv").exists():
     assert follow_up_env["ac_power_checks_passed"] and follow_up_env["browser_and_ide_window_checks_passed"]
     if follow_up_env.get("background_browser_ide_processes_checked_each_repeat"):
         assert not follow_up_env["background_browser_ide_processes_at_start"]
+required_plots = {"length_sweeps", "thread_scaling", "operator_breakdown", "roofline",
+                  "state_vs_kv", "affinity_experiment", "working_sets", "cache_bandwidth", "cache_roofline"}
+for name in required_plots:
+    for suffix in (".png", ".pdf"):
+        assert (ROOT / "output/plots" / (name + suffix)).is_file(), f"Missing plot: {name}{suffix}"
 print(f"Validated {len(gdn)} GDN and {len(stream)} STREAM rows, supplemental study when present, "
-      "four report pages and 600 seconds of talk timings.")
+      "FP64 correctness, STREAM source checksum, PARAM Rudra reference, required figures, four report pages and the presentation file (recording duration not verified).")
