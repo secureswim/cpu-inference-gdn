@@ -8,6 +8,7 @@ CPU-only study of llama.cpp's `GATED_DELTA_NET` operator on synthetic Qwen3-Next
 | --- | --- |
 | Four-page report | [Project_1_Report.pdf](output/pdf/Project_1_Report.pdf) |
 | Presentation | [Project_1_Presentation.pptx](output/Project_1_Presentation.pptx) |
+| Individual contributions | [INDIVIDUAL_CONTRIBUTIONS.md](INDIVIDUAL_CONTRIBUTIONS.md) |
 | Implementation and correctness | `src/`, `CMakeLists.txt`, `tests/` |
 | Build and benchmark scripts | `scripts/configure.py`, `scripts/run.py`, `scripts/run_benchmarks.py` and their supporting scripts |
 | Raw results and hardware/build records | [results/](results/) |
